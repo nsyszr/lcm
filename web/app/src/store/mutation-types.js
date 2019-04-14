@@ -1,0 +1,4 @@
+export const SET_MANAGED_DEVICE = `SET_MANAGED_DEVICE`;
+export const SET_MANAGED_DEVICES = `SET_MANAGED_DEVICES`;
+export const ERROR = `ERROR`;
+export const SUCCESS = `SUCCESS`;
