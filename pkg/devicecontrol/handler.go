@@ -1,7 +1,7 @@
 package devicecontrol
 
 import (
-	"io"
+	"io/ioutil"
 	"sync"
 
 	"github.com/gobwas/ws"
@@ -12,7 +12,7 @@ import (
 
 // Handler contains all properties to serve the API
 type Handler struct {
-	// sessions map[net.Conn]*Session
+	sessions map[int]*session
 	sync.RWMutex
 }
 
@@ -20,7 +20,7 @@ type Handler struct {
 func NewHandler() *Handler {
 	return &Handler{
 		// mgr:      mgr,
-		// sessions: make(map[net.Conn]*Session),
+		sessions: make(map[int]*session),
 	}
 }
 
@@ -52,11 +52,18 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 
 		log.Info("websocket connection established")
 
+		// The websocket connection is established, let's create a session.
+		// The Close methods ensures that the session is removed from the
+		// session table on exit.
+		sess := newSession(h)
+		defer sess.close()
+
 		// We're entering now the main loop for a clients specific websocket
 		// connection. We don't need to spawn a extra goroutine for each client!
 		for {
 			h, err := r.NextFrame()
 			if err != nil {
+				// TODO We should attach this information to the device perhaps.
 				log.Errorf("websocket read message error: %v", err)
 
 				// We should not return the error because echo framework
@@ -72,12 +79,15 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 				// OpClose the socket was closed by the client. We can exit our
 				// handler now.
 				if h.OpCode == ws.OpClose {
+					// TODO we should attach this information to the device
+					// log with a timestamp and modify the discconnectedAt date.
 					log.Info("websocket connection terminated")
 					return nil
 				}
 
 				// Handle the control frame
 				if err = ch(h, r); err != nil {
+					// TODO We should attach this information to the device log perhaps.
 					log.Errorf("websocket handle control frame error: %v", err)
 					return nil
 				}
@@ -86,21 +96,38 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 
 			w.Reset(conn, state, h.OpCode)
 
-			if _, err = io.Copy(w, r); err == nil {
-				err = w.Flush()
-			}
+			// Read all data from websocket client
+			req, err := ioutil.ReadAll(r)
 			if err != nil {
-				log.Errorf("echo error: %s", err)
+				log.Errorf("websocked read error: %v", err)
+				return nil
+			}
+
+			// Handle the received data
+			res, quit, err := sess.handle(req)
+			if err != nil {
+				log.Errorf("websocked handle request error: %v", err)
+				return nil
+			}
+
+			// Respond data to client back, do this before cancel
+			if res != nil {
+				if _, err = w.Write(res); err == nil {
+					err = w.Flush()
+				}
+				if err != nil {
+					// TODO We should attach this information to the device log perhaps.
+					log.Errorf("websocket write error: %s", err)
+					return nil
+				}
+			}
+
+			// Session handler told us to close the connection
+			if quit {
+				log.Info("websocket close initiated")
+				conn.Close()
 				return nil
 			}
 		}
-
-		// Add session to session map
-		// h.Lock()
-		// defer h.Unlock()
-		// h.sessions[conn] = NewSession()
-
-		// Start listening the websocket connection
-		// go listen(conn)
 	}
 }
