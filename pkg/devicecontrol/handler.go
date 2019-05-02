@@ -94,8 +94,6 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 				continue
 			}
 
-			w.Reset(conn, state, h.OpCode)
-
 			// Read all data from websocket client
 			req, err := ioutil.ReadAll(r)
 			if err != nil {
@@ -109,6 +107,12 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 				log.Errorf("websocked handle request error: %v", err)
 				return nil
 			}
+
+			// We read and handled everything so reset the I/O writer before
+			// responding to client.
+			// TODO if we start supporting fragmented message we should rethink
+			// this step very well. Maybe it's wrong.
+			w.Reset(conn, state, h.OpCode)
 
 			// Respond data to client back, do this before cancel
 			if res != nil {

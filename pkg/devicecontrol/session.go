@@ -1,6 +1,8 @@
 package devicecontrol
 
 import (
+	"strings"
+
 	log "github.com/sirupsen/logrus"
 )
 
@@ -58,9 +60,31 @@ func (sess *session) close() {
 // handle processes the received message from the websocket connection.
 // It returns valid payload to send back to the client or nil. If the
 // connection should be closed it returns true as second return value. In
-// case of an error the third return value is not nil. The connection should
+// case of an error the third return value is not nil. The connection has to
 // be terminated, too.
-func (sess *session) handle(payload []byte) ([]byte, bool, error) {
-	log.Infof("We've got a message: %s", string(payload))
-	return []byte("ABORT"), true, nil
+func (sess *session) handle(req []byte) ([]byte, bool, error) {
+	log.Infof("We've got a message: %s", string(req))
+
+	msg := string(req)
+
+	switch sess.state {
+	case StateEstablished:
+		if !strings.HasPrefix(msg, "HELLO:") {
+			// Quit the connection immediately because we received shit!
+			return nil, true, nil
+		}
+
+		realm := msg[6:]
+		if realm != "test" {
+			return []byte("ABORT:ERR_NO_SUCH_REALM"), true, nil
+		}
+
+		sess.state = StateRegistered
+		return []byte("WELCOME"), false, nil
+	case StateRegistered:
+		return []byte("ECHO:" + msg), false, nil
+	}
+
+	// This shouldn't be the case, it's better to close the connection
+	return nil, true, nil
 }

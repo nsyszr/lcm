@@ -15,7 +15,14 @@
           <el-col :span="24" style="padding: 20px 10px 10px 20px;">
             <el-button type="primary" size="mini" @click="connect">Connect</el-button>
             <el-button type="primary" size="mini" @click="disconnect">Disconnect</el-button>
-            <el-button type="primary" size="mini" @click="sendHelloMessage">Send Hello</el-button>
+            <el-button type="primary" size="mini" @click="sendHelloMessage">Send Hello (Registered)</el-button>
+            <el-button
+              type="primary"
+              size="mini"
+              @click="sendInvalidHelloMessage"
+            >Send Hello (Unregistered)</el-button>
+            <el-button type="primary" size="mini" @click="sendShitMessage">Send Shit</el-button>
+            <el-button type="primary" size="mini" @click="sendEchoMessage">Send Echo</el-button>
           </el-col>
         </el-row>
       </el-aside>
@@ -39,8 +46,16 @@ export default {
       this.$store.dispatch("deviceControlDisconnect");
     },
     sendHelloMessage() {
-      // this.$store.dispatch("deviceControlSendMessage", "HELLO");
-      this.$socket.send("HELLO");
+      this.$socket.send("HELLO:test");
+    },
+    sendInvalidHelloMessage() {
+      this.$socket.send("HELLO:blaaa");
+    },
+    sendShitMessage() {
+      this.$socket.send("SHIT");
+    },
+    sendEchoMessage() {
+      this.$socket.send("echo this!");
     },
     refresh() {
       /*this.selected = [];
