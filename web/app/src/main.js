@@ -1,5 +1,6 @@
 import Vue from "vue";
 import "./plugins/vue-cookies";
+import "./plugins/vue-native-websocket";
 import App from "./App.vue";
 import router from "./router";
 import store from "./store";

@@ -3,12 +3,13 @@ import Router from "vue-router";
 // import Home from "@/views/Home.vue";
 // import ManagedDevices from "@/views/ManagedDevices.vue";
 import HelloWorld from "@/components/HelloWorld.vue";
+import WebSocketClient from "@/components/WebSocketClient.vue";
 import store from "@/store";
 
 Vue.use(Router);
 
 const router = new Router({
-  // mode: "history",
+  mode: "history",
   /*hash: false,
   history: true,
   base: process.env.BASE_URL,*/
@@ -21,14 +22,14 @@ const router = new Router({
         requiresAuth: true
       }
     },
-    /*{
-      path: "/managed-devices",
-      name: "managedDevices",
-      component: ManagedDevices,
+    {
+      path: "/wsc",
+      name: "websocket-client",
+      component: WebSocketClient,
       meta: {
         requiresAuth: true
       }
-    },*/
+    },
     {
       // catch all use case*/
       path: "*",

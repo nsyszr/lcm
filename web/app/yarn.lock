@@ -8198,6 +8198,11 @@ vue-loader@^15.6.4:
     vue-hot-reload-api "^2.3.0"
     vue-style-loader "^4.1.0"
 
+vue-native-websocket@^2.0.13:
+  version "2.0.13"
+  resolved "https://registry.yarnpkg.com/vue-native-websocket/-/vue-native-websocket-2.0.13.tgz#5eaba0e7ba08749d7bff331e3290cdf5e61ca918"
+  integrity sha512-w91n76ZcvjCUzWRKX7SkVTqr9YXTxbdYQmf4RX1LvMdsM0RQvpRdWvzTWaY6kw/egsdRKVSceqDsJKbr+WTyMQ==
+
 vue-router@^3.0.1:
   version "3.0.4"
   resolved "https://registry.yarnpkg.com/vue-router/-/vue-router-3.0.4.tgz#d6023e9db64d0b335771f0316c8bde8956f2d75d"

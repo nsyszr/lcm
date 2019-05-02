@@ -12,14 +12,15 @@
           </div>
         </el-col>
         <el-col :span="6" class="center">
-          <span class="title">A proposal for Dave ;o)</span>
+          <span class="title">LCM</span>
         </el-col>
         <el-col :span="6" class="right">
           <font-awesome-icon icon="user" style="color: #00a5db;"/>
         </el-col>
       </el-row>
     </el-header>
-    <hello-world msg="Hello World!"></hello-world>
+    <!-- <hello-world msg="Hello World!"></hello-world> -->
+    <router-view></router-view>
   </el-container>
 </template>
 
