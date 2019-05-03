@@ -16,6 +16,14 @@ const (
 	StateClosed
 )
 
+type Flag int
+
+const (
+	FlagContinue Flag = iota
+	FlagCloseGracefully
+	FlagTerminate
+)
+
 func (state State) String() string {
 	names := []string{
 		"ESTABLISHED",
@@ -62,8 +70,8 @@ func (sess *session) close() {
 // connection should be closed it returns true as second return value. In
 // case of an error the third return value is not nil. The connection has to
 // be terminated, too.
-func (sess *session) handle(req []byte) ([]byte, bool, error) {
-	log.Infof("We've got a message: %s", string(req))
+func (sess *session) handle(req []byte) ([]byte, Flag, error) {
+	log.Infof("session handles message: %s", string(req))
 
 	msg := string(req)
 
@@ -71,20 +79,25 @@ func (sess *session) handle(req []byte) ([]byte, bool, error) {
 	case StateEstablished:
 		if !strings.HasPrefix(msg, "HELLO:") {
 			// Quit the connection immediately because we received shit!
-			return nil, true, nil
+			log.Info("session quits immediately because of invalid payload")
+			return nil, FlagTerminate, nil
 		}
 
 		realm := msg[6:]
 		if realm != "test" {
-			return []byte("ABORT:ERR_NO_SUCH_REALM"), true, nil
+			log.Info("session quits with ABORT:ERR_NO_SUCH_REALM")
+			return []byte("ABORT:ERR_NO_SUCH_REALM"), FlagCloseGracefully, nil
 		}
 
 		sess.state = StateRegistered
-		return []byte("WELCOME"), false, nil
+		log.Info("session responds with WELCOME")
+		return []byte("WELCOME"), FlagContinue, nil
 	case StateRegistered:
-		return []byte("ECHO:" + msg), false, nil
+		log.Info("session responds with ECHO")
+		return []byte("ECHO:" + msg), FlagContinue, nil
 	}
 
 	// This shouldn't be the case, it's better to close the connection
-	return nil, true, nil
+	return nil, FlagTerminate, nil
 }
+

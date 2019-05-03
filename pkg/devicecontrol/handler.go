@@ -3,6 +3,7 @@ package devicecontrol
 import (
 	"io/ioutil"
 	"sync"
+	"time"
 
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
@@ -58,6 +59,24 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 		sess := newSession(h)
 		defer sess.close()
 
+		go func(w *wsutil.Writer) {
+			time.Sleep(10 * time.Second)
+
+			w.Reset(conn, state, ws.OpClose)
+
+			// Write empty string
+			if _, err = w.Write([]byte("")); err == nil {
+				err = w.Flush()
+			}
+			if err != nil {
+				// TODO We should attach this information to the device log perhaps.
+				log.Errorf("websocket write error: %s", err)
+				return
+			}
+
+			// conn.Close()
+		}(w)
+
 		// We're entering now the main loop for a clients specific websocket
 		// connection. We don't need to spawn a extra goroutine for each client!
 		for {
@@ -72,6 +91,8 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 				return nil
 			}
 
+			// We reveived an operation control frame and handle it before
+			// continuation.
 			if h.OpCode.IsControl() {
 				log.Info("websocket control frame received")
 
@@ -81,7 +102,7 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 				if h.OpCode == ws.OpClose {
 					// TODO we should attach this information to the device
 					// log with a timestamp and modify the discconnectedAt date.
-					log.Info("websocket connection terminated")
+					log.Info("websocket connection closed gracefully")
 					return nil
 				}
 
@@ -102,20 +123,19 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 			}
 
 			// Handle the received data
-			res, quit, err := sess.handle(req)
+			res, flag, err := sess.handle(req)
 			if err != nil {
 				log.Errorf("websocked handle request error: %v", err)
 				return nil
 			}
 
-			// We read and handled everything so reset the I/O writer before
-			// responding to client.
-			// TODO if we start supporting fragmented message we should rethink
-			// this step very well. Maybe it's wrong.
-			w.Reset(conn, state, h.OpCode)
-
-			// Respond data to client back, do this before cancel
+			// Respond data to client back
 			if res != nil {
+				// Setup the writer with proper websocket frame settings.
+				// TODO if we start supporting fragmented message we should rethink
+				// this step very well. Maybe it's wrong.
+				w.Reset(conn, state, h.OpCode)
+
 				if _, err = w.Write(res); err == nil {
 					err = w.Flush()
 				}
@@ -126,10 +146,35 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 				}
 			}
 
-			// Session handler told us to close the connection
-			if quit {
-				log.Info("websocket close initiated")
-				conn.Close()
+			// Session handler told us to close the connection gracefully.
+			// We send an empty string but with OpClose control frame, to tell
+			// the client to close the connection. We will receive back a
+			// message with OpClose control frame and this will stop handling
+			// the websocket connection. See above.
+			if flag == FlagCloseGracefully {
+				log.Info("websocket graceful close initiated")
+				// Setup the writer with OpClose control frame
+				w.Reset(conn, state, ws.OpClose)
+
+				// Write empty string
+				if _, err = w.Write([]byte("")); err == nil {
+					err = w.Flush()
+				}
+				if err != nil {
+					// TODO We should attach this information to the device log perhaps.
+					log.Errorf("websocket write error: %s", err)
+					return nil
+				}
+
+				// We do not return since we receive an OpClose control frame above
+				// return nil
+			}
+
+			// Session handler told us to terminate the websocket connection.
+			// We exit the handler!
+			if flag == FlagTerminate {
+				log.Info("websocket terminated")
+				// conn.Close()
 				return nil
 			}
 		}
