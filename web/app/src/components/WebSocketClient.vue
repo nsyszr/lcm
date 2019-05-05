@@ -23,6 +23,7 @@
             >Send Hello (Unregistered)</el-button>
             <el-button type="primary" size="mini" @click="sendShitMessage">Send Shit</el-button>
             <el-button type="primary" size="mini" @click="sendEchoMessage">Send Echo</el-button>
+            <el-button type="primary" size="mini" @click="sendQuitMessage">Send Quit</el-button>
           </el-col>
         </el-row>
       </el-aside>
@@ -55,7 +56,10 @@ export default {
       this.$socket.send("SHIT");
     },
     sendEchoMessage() {
-      this.$socket.send("echo this!");
+      this.$socket.send("ECHO");
+    },
+    sendQuitMessage() {
+      this.$socket.send("QUIT");
     },
     refresh() {
       /*this.selected = [];
