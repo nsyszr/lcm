@@ -12,15 +12,14 @@ import (
 
 // Handler contains all properties to serve the API
 type Handler struct {
-	sessions map[int]*session
+	sessions map[int32]*session
 	sync.RWMutex
 }
 
 // NewHandler create a new API handler
 func NewHandler() *Handler {
 	return &Handler{
-		// mgr:      mgr,
-		sessions: make(map[int]*session),
+		sessions: make(map[int32]*session),
 	}
 }
 
@@ -55,7 +54,10 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 		// The websocket connection is established, let's create a session.
 		// The Close methods ensures that the session is removed from the
 		// session table on exit.
-		sess := newSession(h)
+		sess, err := newSession(h)
+		if err != nil {
+			return err
+		}
 		defer sess.close()
 
 		/*go func(w *wsutil.Writer) {

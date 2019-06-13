@@ -9,11 +9,10 @@
               class="logo"
               style="padding-top: 3px;background-color: #ececec;"
             >
+            <span class="title" style="position: absolute; color: #909399;">IoT Console</span>
           </div>
         </el-col>
-        <el-col :span="6" class="center">
-          <span class="title">LCM</span>
-        </el-col>
+        <el-col :span="6" class="center"></el-col>
         <el-col :span="6" class="right">
           <font-awesome-icon icon="user" style="color: #00a5db;"/>
         </el-col>

@@ -3,7 +3,10 @@
     <el-header height="40px" style="line-height: 40px;">
       <el-row type="flex" class="header" justify="space-between">
         <el-col :span="6" class="left">
-          <span class="small-title">Devices</span>
+          <span class="small-title" style="padding-left: 10px">
+            Smart Devices
+            <span style="padding-left: 5px; color: #909399;">3</span>
+          </span>
         </el-col>
         <el-col :span="6" class="center"></el-col>
         <el-col :span="6" class="right"></el-col>
@@ -26,7 +29,7 @@
               highlight-current-row
               @current-change="handleCurrentChange"
               style="width: 100%;"
-              cell-style="border: 0;"
+              cell-style="border: 0; cursor:pointer;"
             >
               <el-table-column prop="connectionStatus" label width="50%">
                 <template>

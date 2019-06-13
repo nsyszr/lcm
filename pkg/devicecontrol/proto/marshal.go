@@ -1,4 +1,4 @@
-package message
+package proto
 
 import (
 	"encoding/json"
@@ -9,7 +9,7 @@ func (m HelloMessage) Marshal() ([]byte, error) {
 	envelope := make([]interface{}, 3)
 	envelope[0] = int(MessageTypeHello)
 	envelope[1] = m.Realm
-	envelope[2] = ensureJSONDict(m.Details)
+	envelope[2] = ensureEmptyDictIfNil(m.Details)
 
 	return json.Marshal(envelope)
 }
@@ -18,7 +18,7 @@ func (m WelcomeMessage) Marshal() ([]byte, error) {
 	envelope := make([]interface{}, 3)
 	envelope[0] = int(MessageTypeWelcome)
 	envelope[1] = m.SessionID
-	envelope[2] = ensureJSONDict(m.Details)
+	envelope[2] = ensureEmptyDictIfNil(m.Details)
 
 	return json.Marshal(envelope)
 }
@@ -27,7 +27,7 @@ func (m AbortMessage) Marshal() ([]byte, error) {
 	envelope := make([]interface{}, 3)
 	envelope[0] = int(MessageTypeAbort)
 	envelope[1] = m.Reason
-	envelope[2] = ensureJSONDict(m.Details)
+	envelope[2] = ensureEmptyDictIfNil(m.Details)
 
 	return json.Marshal(envelope)
 }
@@ -35,7 +35,7 @@ func (m AbortMessage) Marshal() ([]byte, error) {
 func (m PingMessage) Marshal() ([]byte, error) {
 	envelope := make([]interface{}, 2)
 	envelope[0] = int(MessageTypePing)
-	envelope[1] = ensureJSONDict(m.Details)
+	envelope[1] = ensureEmptyDictIfNil(m.Details)
 
 	return json.Marshal(envelope)
 }
@@ -43,7 +43,7 @@ func (m PingMessage) Marshal() ([]byte, error) {
 func (m PongMessage) Marshal() ([]byte, error) {
 	envelope := make([]interface{}, 2)
 	envelope[0] = int(MessageTypePong)
-	envelope[1] = ensureJSONDict(m.Details)
+	envelope[1] = ensureEmptyDictIfNil(m.Details)
 
 	return json.Marshal(envelope)
 }
@@ -53,7 +53,7 @@ func (m CallMessage) Marshal() ([]byte, error) {
 	envelope[0] = int(MessageTypeCall)
 	envelope[1] = m.RequestID
 	envelope[2] = m.Operation
-	envelope[3] = ensureJSONDict(m.Arguments)
+	envelope[3] = ensureEmptyDictIfNil(m.Arguments)
 
 	return json.Marshal(envelope)
 }
@@ -62,7 +62,7 @@ func (m ResultMessage) Marshal() ([]byte, error) {
 	envelope := make([]interface{}, 3)
 	envelope[0] = int(MessageTypeResult)
 	envelope[1] = m.RequestID
-	envelope[2] = ensureJSONDict(m.Results)
+	envelope[2] = ensureEmptyDictIfNil(m.Results)
 
 	return json.Marshal(envelope)
 }
@@ -73,7 +73,7 @@ func (m ErrorMessage) Marshal() ([]byte, error) {
 	envelope[1] = int(m.MessageType)
 	envelope[2] = m.RequestID
 	envelope[3] = m.Error
-	envelope[4] = ensureJSONDict(m.Details)
+	envelope[4] = ensureEmptyDictIfNil(m.Details)
 
 	return json.Marshal(envelope)
 }
@@ -83,7 +83,7 @@ func (m PublishMessage) Marshal() ([]byte, error) {
 	envelope[0] = int(MessageTypePublish)
 	envelope[1] = m.RequestID
 	envelope[2] = m.Topic
-	envelope[3] = ensureJSONDict(m.Arguments)
+	envelope[3] = ensureEmptyDictIfNil(m.Arguments)
 
 	return json.Marshal(envelope)
 }
@@ -97,7 +97,7 @@ func (m PublishedMessage) Marshal() ([]byte, error) {
 	return json.Marshal(envelope)
 }
 
-func Marshal(v interface{}) ([]byte, error) {
+func MarshalMessage(v interface{}) ([]byte, error) {
 	if msg, ok := v.(HelloMessage); ok {
 		return msg.Marshal()
 	}
@@ -134,7 +134,7 @@ func Marshal(v interface{}) ([]byte, error) {
 	return nil, fmt.Errorf("cannot marshal an invalid message")
 }
 
-func ensureJSONDict(v interface{}) interface{} {
+func ensureEmptyDictIfNil(v interface{}) interface{} {
 	type emptyDict struct{}
 	if v == nil {
 		return emptyDict{}

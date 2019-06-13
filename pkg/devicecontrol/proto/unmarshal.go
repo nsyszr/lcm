@@ -1,4 +1,4 @@
-package message
+package proto
 
 import (
 	"encoding/json"
@@ -31,7 +31,7 @@ func unmarshalMessageType(v interface{}) (MessageType, error) {
 	return msgType, nil
 }
 
-func Unmarshal(data []byte) (MessageType, interface{}, error) {
+func UnmarshalMessage(data []byte) (MessageType, interface{}, error) {
 	var envelope []interface{}
 
 	if err := json.Unmarshal(data, &envelope); err != nil {
