@@ -3,7 +3,6 @@ package devicecontrol
 import (
 	"io/ioutil"
 	"sync"
-	"time"
 
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
@@ -59,7 +58,7 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 		sess := newSession(h)
 		defer sess.close()
 
-		go func(w *wsutil.Writer) {
+		/*go func(w *wsutil.Writer) {
 			time.Sleep(10 * time.Second)
 
 			w.Reset(conn, state, ws.OpClose)
@@ -75,7 +74,7 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 			}
 
 			// conn.Close()
-		}(w)
+		}(w)*/
 
 		// We're entering now the main loop for a clients specific websocket
 		// connection. We don't need to spawn a extra goroutine for each client!

@@ -47,16 +47,16 @@ export default {
       this.$store.dispatch("deviceControlDisconnect");
     },
     sendHelloMessage() {
-      this.$socket.send("HELLO:test");
+      this.$socket.send(JSON.stringify([1, "test", {}]));
     },
     sendInvalidHelloMessage() {
-      this.$socket.send("HELLO:blaaa");
+      this.$socket.send(JSON.stringify([1, "invalid", {}]));
     },
     sendShitMessage() {
       this.$socket.send("SHIT");
     },
     sendEchoMessage() {
-      this.$socket.send("ECHO");
+      this.$socket.send(JSON.stringify([4, {}]));
     },
     sendQuitMessage() {
       this.$socket.send("QUIT");

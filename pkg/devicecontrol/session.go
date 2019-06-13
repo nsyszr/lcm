@@ -1,8 +1,7 @@
 package devicecontrol
 
 import (
-	"strings"
-
+	"github.com/nsyszr/lcm/pkg/devicecontrol/message"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -73,31 +72,69 @@ func (sess *session) close() {
 func (sess *session) handle(req []byte) ([]byte, Flag, error) {
 	log.Infof("session handles message: %s", string(req))
 
-	msg := string(req)
+	msgType, msg, err := message.Unmarshal(req)
+	if err != nil {
+		log.Infof("session quits immediately because of invalid payload: %s", err.Error())
+		return nil, FlagTerminate, nil
+	}
 
 	switch sess.state {
 	case StateEstablished:
-		if !strings.HasPrefix(msg, "HELLO:") {
-			// Quit the connection immediately because we received shit!
-			log.Info("session quits immediately because of invalid payload")
+		if msgType != message.MessageTypeHello {
+			// Quit the connection immediately because of protocol violation
+			log.Info("session quits immediately because of protocol violation: expected a hello message")
 			return nil, FlagTerminate, nil
 		}
+		helloMsg, _ := msg.(message.HelloMessage)
 
-		realm := msg[6:]
-		if realm != "test" {
+		if helloMsg.Realm != "test" {
 			log.Info("session quits with ABORT:ERR_NO_SUCH_REALM")
-			return []byte("ABORT:ERR_NO_SUCH_REALM"), FlagCloseGracefully, nil
+
+			abortMsg := message.AbortMessage{Reason: "ERR_NO_SUCH_REALM", Details: nil}
+			res, err := message.Marshal(abortMsg)
+
+			// This error should happen never! If it happens log an urgent error
+			// and terminate the websocket session for safety.
+			if err != nil {
+				log.Errorf("could not marshal a message: %s", err.Error())
+				return nil, FlagTerminate, nil
+			}
+
+			return res, FlagCloseGracefully, nil
 		}
 
 		sess.state = StateRegistered
 		log.Info("session responds with WELCOME")
-		return []byte("WELCOME"), FlagContinue, nil
+
+		welcomeMsg := message.WelcomeMessage{SessionID: 1234, Details: nil}
+		res, err := message.Marshal(welcomeMsg)
+
+		// This error should happen never! If it happens log an urgent error
+		// and terminate the websocket session for safety.
+		if err != nil {
+			log.Errorf("could not marshal a message: %s", err.Error())
+			return nil, FlagTerminate, nil
+		}
+
+		return res, FlagContinue, nil
 	case StateRegistered:
-		log.Info("session responds with ECHO")
-		return []byte("ECHO:" + msg), FlagContinue, nil
+		if msgType == message.MessageTypePing {
+			log.Info("session responds with PING")
+
+			pongMsg := message.PongMessage{Details: nil}
+			res, err := message.Marshal(pongMsg)
+
+			// This error should happen never! If it happens log an urgent error
+			// and terminate the websocket session for safety.
+			if err != nil {
+				log.Errorf("could not marshal a message: %s", err.Error())
+				return nil, FlagTerminate, nil
+			}
+
+			return res, FlagContinue, nil
+		}
 	}
 
 	// This shouldn't be the case, it's better to close the connection
 	return nil, FlagTerminate, nil
 }
-
