@@ -86,6 +86,24 @@
   version = "v1.1.2"
 
 [[projects]]
+  name = "github.com/nats-io/nats.go"
+  packages = [".","encoders/builtin","util"]
+  revision = "e2837a2879e82886f6e21715e3a0217fdc46d370"
+  version = "v1.8.1"
+
+[[projects]]
+  name = "github.com/nats-io/nkeys"
+  packages = ["."]
+  revision = "1546a3320a8f195a5b5c84aef8309377c2e411d5"
+  version = "v0.0.2"
+
+[[projects]]
+  name = "github.com/nats-io/nuid"
+  packages = ["."]
+  revision = "4b96681fa6d28dd0ab5fe79bac63b3a493d9ee94"
+  version = "v1.0.1"
+
+[[projects]]
   name = "github.com/pelletier/go-toml"
   packages = ["."]
   revision = "728039f679cbcd4f6a54e080d2219a4c4928c546"
@@ -148,7 +166,7 @@
 [[projects]]
   branch = "master"
   name = "golang.org/x/crypto"
-  packages = ["acme","acme/autocert"]
+  packages = ["acme","acme/autocert","ed25519","ed25519/internal/edwards25519"]
   revision = "a29dc8fdc73485234dbef99ebedb95d2eced08de"
 
 [[projects]]
@@ -178,6 +196,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "c01558e757b14adff7f393a8b5c20ad8e8dcfffc13d49f9f7828b1b88e4ab4e1"
+  inputs-digest = "0351a0bf2dd6f44775fc86f47492d2ed46c83b866e23453011f9e281cc4e3ea1"
   solver-name = "gps-cdcl"
   solver-version = 1

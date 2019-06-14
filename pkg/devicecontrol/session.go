@@ -5,6 +5,8 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/nsyszr/lcm/pkg/authority"
+
 	"github.com/nsyszr/lcm/pkg/devicecontrol/proto"
 	log "github.com/sirupsen/logrus"
 )
@@ -43,9 +45,10 @@ func (state State) String() string {
 }
 
 type session struct {
-	h     *Handler
-	id    int32
-	state State
+	h          *Handler
+	instanceID string
+	id         int32
+	state      State
 }
 
 func init() {
@@ -54,10 +57,11 @@ func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
-func newSession(h *Handler) (*session, error) {
+func newSession(h *Handler, instanceID string) (*session, error) {
 	sess := &session{
-		h:     h,
-		state: StateEstablished,
+		h:          h,
+		instanceID: instanceID,
+		state:      StateEstablished,
 	}
 
 	// Find a unique session ID within a period of 10 seconds and append the
@@ -121,25 +125,20 @@ func (sess *session) handle(req []byte) ([]byte, Flag, error) {
 	// except the ping. The ping / pong keepalive is handled by the session.
 	switch sess.state {
 	case StateEstablished:
-		if msgType != proto.MessageTypeHello {
-			// Quit the connection immediately because of protocol violation
-			log.Info("session quits immediately because of protocol violation: expected a hello message")
-			return nil, FlagTerminate, nil
-		}
-		helloMsg, ok := msg.(proto.HelloMessage)
-		// This error should happen never! If it happens log an urgent error
-		// and terminate the websocket session for safety.
-		if !ok {
-			log.Error("type cast the unmarshalled hello message to a hello message type failed")
+		helloMsg, err := proto.MustHelloMessage(msg)
+		if err != nil {
+			log.Infof("session quits immediately because of protocol violation: %s", err.Error())
 			return nil, FlagTerminate, nil
 		}
 
-		if helloMsg.Realm != "test" {
-			log.Info("session quits with ABORT:ERR_NO_SUCH_REALM")
+		// Run authorizte request
+		client := authority.NewAuthorityClient(sess.h.nc)
+		authResult, err := client.Authorize(helloMsg.Realm)
+		if err != nil && authority.IsAuthorizationError(err) {
+			// Authorization failed, send abort message
+			e, _ := err.(*authority.AuthorizeError)
 
-			abortMsg := proto.AbortMessage{Reason: "ERR_NO_SUCH_REALM", Details: nil}
-			res, err := proto.MarshalMessage(abortMsg)
-
+			res, err := proto.MarshalNewAbortMessage(e.Reason, e.Details)
 			// This error should happen never! If it happens log an urgent error
 			// and terminate the websocket session for safety.
 			if err != nil {
@@ -148,20 +147,22 @@ func (sess *session) handle(req []byte) ([]byte, Flag, error) {
 			}
 
 			return res, FlagCloseGracefully, nil
+		} else if err != nil {
+			log.Errorf("failed to authorize: %s", err.Error())
+			return nil, FlagTerminate, nil
 		}
 
-		sess.state = StateRegistered
-		log.Info("session responds with WELCOME")
-
-		welcomeMsg := proto.WelcomeMessage{SessionID: sess.id, Details: nil}
-		res, err := proto.MarshalMessage(welcomeMsg)
-
+		// Send welcome message
+		res, err := proto.MarshalNewWelcomeMessage(sess.id, authResult)
 		// This error should happen never! If it happens log an urgent error
 		// and terminate the websocket session for safety.
 		if err != nil {
 			log.Errorf("could not marshal a message: %s", err.Error())
 			return nil, FlagTerminate, nil
 		}
+
+		sess.state = StateRegistered
+		log.Info("session responds with WELCOME")
 
 		return res, FlagContinue, nil
 	case StateRegistered:

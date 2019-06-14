@@ -7,18 +7,25 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
+	nats "github.com/nats-io/nats.go"
 	"github.com/nsyszr/lcm/pkg/devicecontrol"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
-type server struct {
+type deviceControlServer struct {
 	quitAPI chan bool
 	doneAPI chan bool
+
+	nc    *nats.Conn
+	errCh chan error
+	wg    sync.WaitGroup
 }
 
 func init() {
@@ -33,15 +40,45 @@ func init() {
 	log.SetLevel(log.InfoLevel)
 }
 
-func newServer() (*server, error) {
-	return &server{
+func newDeviceControlServer() (*deviceControlServer, error) {
+	s := &deviceControlServer{
 		// mgr:     memory.NewMemoryManager(),
 		quitAPI: make(chan bool),
 		doneAPI: make(chan bool),
-	}, nil
+
+		errCh: make(chan error, 1),
+		wg:    sync.WaitGroup{},
+	}
+
+	nc, err := nats.Connect(nats.DefaultURL,
+		nats.DrainTimeout(10*time.Second),
+		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
+			fmt.Printf("\n\nerror handler: %s\n\n", err)
+			s.errCh <- err
+		}),
+		nats.ClosedHandler(func(_ *nats.Conn) {
+			fmt.Printf("\n\nclosed handler\n\n")
+			s.wg.Done()
+		}),
+		nats.DisconnectHandler(func(_ *nats.Conn) {
+			// TODO(DGL) this method is called twice when NATS server is going
+			// offline. 1st when server gone and 2nd when the shutdown/drain is
+			// initiated.
+			fmt.Printf("\n\ndisconnect handler\n\n")
+			// s.wg.Done()
+			syscall.Kill(syscall.Getpid(), syscall.SIGINT)
+			//s.quitCh <- os.Interrupt
+		}))
+	if err != nil {
+		return nil, err
+	}
+
+	s.nc = nc
+
+	return s, nil
 }
 
-func (s *server) ServeAPI() {
+func (s *deviceControlServer) Serve() {
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
@@ -51,7 +88,7 @@ func (s *server) ServeAPI() {
 	// e.HTTPErrorHandler = errorx.JSONErrorHandler
 
 	// Register API endpoints
-	deviceControlHandler := devicecontrol.NewHandler()
+	deviceControlHandler := devicecontrol.NewHandler(s.nc)
 	deviceControlHandler.RegisterRoutes(e)
 
 	// Register devicecontrol endpoint
@@ -141,7 +178,11 @@ func logger() echo.MiddlewareFunc {
 	}
 }
 
-func (s *server) ShutdownAPI() {
+func (s *deviceControlServer) Shutdown() {
+	if s.nc != nil {
+		s.nc.Drain()
+	}
+
 	// Send the quit signal to the server.ServeAPI() routine
 	s.quitAPI <- true
 
@@ -154,15 +195,15 @@ func (s *server) ShutdownAPI() {
 	}
 }
 
-func RunServe() func(cmd *cobra.Command, args []string) {
+func RunServeDeviceControl() func(cmd *cobra.Command, args []string) {
 	return func(cmd *cobra.Command, args []string) {
-		s, err := newServer()
+		s, err := newDeviceControlServer()
 		if err != nil {
 			log.Error("failed to create new server instance: ", err)
 			os.Exit(1)
 		}
 
-		go s.ServeAPI()
+		go s.Serve()
 
 		// Wait for interrupt signal to gracefully shutdown the server
 		quit := make(chan os.Signal)
@@ -170,6 +211,6 @@ func RunServe() func(cmd *cobra.Command, args []string) {
 		<-quit
 
 		// Shutdown the server
-		s.ShutdownAPI()
+		s.Shutdown()
 	}
 }

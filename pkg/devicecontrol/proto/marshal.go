@@ -141,3 +141,13 @@ func ensureEmptyDictIfNil(v interface{}) interface{} {
 	}
 	return v
 }
+
+func MarshalNewAbortMessage(reason string, details interface{}) ([]byte, error) {
+	msg := AbortMessage{Reason: reason, Details: details}
+	return MarshalMessage(msg)
+}
+
+func MarshalNewWelcomeMessage(sessionID int32, details interface{}) ([]byte, error) {
+	msg := WelcomeMessage{SessionID: sessionID, Details: details}
+	return MarshalMessage(msg)
+}

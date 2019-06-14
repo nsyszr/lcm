@@ -7,19 +7,22 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	"github.com/labstack/echo"
+	nats "github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
 )
 
 // Handler contains all properties to serve the API
 type Handler struct {
 	sessions map[int32]*session
+	nc       *nats.Conn
 	sync.RWMutex
 }
 
 // NewHandler create a new API handler
-func NewHandler() *Handler {
+func NewHandler(nc *nats.Conn) *Handler {
 	return &Handler{
 		sessions: make(map[int32]*session),
+		nc:       nc,
 	}
 }
 
@@ -51,10 +54,16 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 
 		log.Info("websocket connection established")
 
+		// Determinate the instance of the client.
+		instanceID := c.Request().Header.Get("X-INSYS-Service-Instance-Id")
+		if instanceID == "" {
+			instanceID = "default"
+		}
+
 		// The websocket connection is established, let's create a session.
 		// The Close methods ensures that the session is removed from the
 		// session table on exit.
-		sess, err := newSession(h)
+		sess, err := newSession(h, instanceID)
 		if err != nil {
 			return err
 		}
