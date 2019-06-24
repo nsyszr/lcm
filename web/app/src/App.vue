@@ -9,7 +9,7 @@
               class="logo"
               style="padding-top: 3px;background-color: #ececec;"
             >
-            <span class="title" style="position: absolute; color: #909399;">IoT Console</span>
+            <span class="title" style="position: absolute; color: #909399;">Smart IoT Console</span>
           </div>
         </el-col>
         <el-col :span="6" class="center"></el-col>
