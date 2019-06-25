@@ -151,3 +151,8 @@ func MarshalNewWelcomeMessage(sessionID int32, details interface{}) ([]byte, err
 	msg := WelcomeMessage{SessionID: sessionID, Details: details}
 	return MarshalMessage(msg)
 }
+
+func MarshalNewPongMessage() ([]byte, error) {
+	msg := PongMessage{}
+	return MarshalMessage(msg)
+}
