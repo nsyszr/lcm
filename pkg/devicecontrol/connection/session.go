@@ -44,12 +44,8 @@ func (sess *Session) HandleMessage(data []byte) ([]byte, Flag, error) {
 	// Unmarshal the message to get the message type for further processing.
 	msgType, msg, err := proto.UnmarshalMessage(data)
 	if err != nil {
-		log.Warnf("session terminates immediately because of invalid payload: %s", err.Error())
-		return nil, FlagTerminate, nil
+		return terminateAndLogError("invalid payload", err)
 	}
-
-	// Update LastMessageAt
-	sess.LastMessageAt = time.Now()
 
 	switch msgType {
 	case proto.MessageTypeHello:
@@ -58,11 +54,11 @@ func (sess *Session) HandleMessage(data []byte) ([]byte, Flag, error) {
 		return sess.handleMessage(msg, sess.ensureRegistered(sess.keepAliveHandler()))
 	}
 
-	log.Error("session terminates immediately because of unhandled message")
-	return nil, FlagTerminate, nil
+	return terminateAndLog("unhandled message")
 }
 
 func (sess *Session) handleMessage(msg interface{}, h messageHandler) ([]byte, Flag, error) {
+	sess.LastMessageAt = time.Now()
 	return h.Handle(msg)
 }
 
@@ -70,43 +66,25 @@ func (sess *Session) helloHandler() messageHandlerFunc {
 	return messageHandlerFunc(func(msg interface{}) ([]byte, Flag, error) {
 		helloMsg, err := proto.MustHelloMessage(msg)
 		if err != nil {
-			log.Infof("session terminates immediately because of protocol violation: %s", err.Error())
-			return nil, FlagTerminate, nil
+			return terminateAndLogError("hello message expected", err)
 		}
 
 		// Do authentication
 		if helloMsg.Realm != "test" {
-			out, err := proto.MarshalNewAbortMessage("ERR_NO_SUCH_REALM", nil)
-			// This error should happen never! If it happens log an urgent error
-			// and terminate the websocket session for safety.
-			if err != nil {
-				log.Errorf("could not marshal a message: %s", err.Error())
-				return nil, FlagTerminate, nil
-			}
-
-			return out, FlagCloseGracefully, nil
-		}
-
-		// Send welcome message
-		out, err := proto.MarshalNewWelcomeMessage(1234, nil)
-		// This error should happen never! If it happens log an urgent error
-		// and terminate the websocket session for safety.
-		if err != nil {
-			log.Errorf("could not marshal a message: %s", err.Error())
-			return nil, FlagTerminate, nil
+			return abortMessageAndClose("ERR_NO_SUCH_REALM", nil)
 		}
 
 		sess.Status = SessionStatusRegistered
 		log.Info("session responds with WELCOME")
 
-		return out, FlagContinue, nil
+		return welcomeMessage(1234, nil)
 	})
 }
 
 func (sess *Session) ensureRegistered(next messageHandler) messageHandler {
 	return messageHandlerFunc(func(msg interface{}) ([]byte, Flag, error) {
 		if sess.Status != SessionStatusRegistered {
-			return nil, FlagTerminate, nil
+			return terminateAndLog("session is not registered")
 		}
 		return next.Handle(msg)
 	})
@@ -114,13 +92,46 @@ func (sess *Session) ensureRegistered(next messageHandler) messageHandler {
 
 func (sess *Session) keepAliveHandler() messageHandlerFunc {
 	return messageHandlerFunc(func(msg interface{}) ([]byte, Flag, error) {
-		out, err := proto.MarshalNewPongMessage()
-		if err != nil {
-			// TODO(DGL) Convert error to something useful
-			log.Errorf("session terminates immediately because of marshalling failed: %s", err.Error())
-			return nil, FlagTerminate, nil
-		}
-
-		return out, FlagContinue, nil
+		return pongMessage()
 	})
+}
+
+func terminateAndLog(message string) ([]byte, Flag, error) {
+	log.Errorf("devicecontrol: %s", message)
+	return nil, FlagTerminate, nil
+}
+
+func terminateAndLogError(message string, err error) ([]byte, Flag, error) {
+	log.Errorf("devicecontrol: %s: %s", message, err.Error())
+	return nil, FlagTerminate, nil
+}
+
+func abortMessageAndClose(reason string, details interface{}) ([]byte, Flag, error) {
+	out, err := proto.MarshalNewAbortMessage(reason, details)
+	// This error should happen never! If it happens log an urgent error
+	// and terminate the websocket session for safety.
+	if err != nil {
+		return terminateAndLogError("could not marshal message", err)
+	}
+	return out, FlagCloseGracefully, nil
+}
+
+func welcomeMessage(sessionID int32, details interface{}) ([]byte, Flag, error) {
+	out, err := proto.MarshalNewWelcomeMessage(1234, nil)
+	// This error should happen never! If it happens log an urgent error
+	// and terminate the websocket session for safety.
+	if err != nil {
+		return terminateAndLogError("could not marshal message", err)
+	}
+	return out, FlagContinue, nil
+}
+
+func pongMessage() ([]byte, Flag, error) {
+	out, err := proto.MarshalNewPongMessage()
+	// This error should happen never! If it happens log an urgent error
+	// and terminate the websocket session for safety.
+	if err != nil {
+		return terminateAndLogError("could not marshal message", err)
+	}
+	return out, FlagContinue, nil
 }
