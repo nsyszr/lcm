@@ -156,3 +156,11 @@ func MarshalNewPongMessage() ([]byte, error) {
 	msg := PongMessage{}
 	return MarshalMessage(msg)
 }
+
+func MarshalNewPublishedMessage(requestID, publicationID int32) ([]byte, error) {
+	msg := PublishedMessage{
+		RequestID:     requestID,
+		PublicationID: publicationID,
+	}
+	return MarshalMessage(msg)
+}

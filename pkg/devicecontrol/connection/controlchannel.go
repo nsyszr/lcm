@@ -2,6 +2,7 @@ package connection
 
 import (
 	"net"
+	"sync"
 	"time"
 
 	"github.com/gobwas/ws"
@@ -18,6 +19,7 @@ const (
 )
 
 type ControlChannel struct {
+	sync.RWMutex
 	ctrl           *Controller
 	conn           net.Conn
 	w              *wsutil.Writer
@@ -26,6 +28,7 @@ type ControlChannel struct {
 	stopCh         chan bool
 	registeredCh   chan bool
 	pingCh         chan bool
+	realm          string
 	sessionTimeout int
 }
 
@@ -38,7 +41,7 @@ const (
 )
 
 func NewControlChannel(ctrl *Controller, conn net.Conn, w *wsutil.Writer) *ControlChannel {
-	c := &ControlChannel{
+	cc := &ControlChannel{
 		ctrl:         ctrl,
 		conn:         conn,
 		w:            w,
@@ -50,14 +53,54 @@ func NewControlChannel(ctrl *Controller, conn net.Conn, w *wsutil.Writer) *Contr
 
 	// Start the go routine which ensures that registration happens within
 	// given period.
-	go c.waitForReqistrationOrClose()
+	go cc.waitForReqistrationOrClose()
 
-	return c
+	return cc
 }
 
 func (cc *ControlChannel) Close() {
 	// Tell our go routines to stop listening for a signal
 	cc.stopCh <- true
+}
+
+func (cc *ControlChannel) HandleMessage(data []byte) ([]byte, Flag, error) {
+	log.Infof("controlchannel handles message '%s'", string(data))
+
+	// Unmarshal the message to get the message type for further processing.
+	msgType, msg, err := proto.UnmarshalMessage(data)
+	if err != nil {
+		return terminateAndLogError("invalid payload", err)
+	}
+
+	switch msgType {
+	case proto.MessageTypeHello:
+		return cc.handleMessage(msg, cc.helloHandler())
+	case proto.MessageTypePing:
+		return cc.handleMessage(msg, cc.ensureRegistered(cc.keepAliveHandler()))
+	case proto.MessageTypePublish:
+		return cc.handleMessage(msg, cc.ensureRegistered(cc.eventHandler()))
+	}
+
+	return terminateAndLog("unhandled message")
+}
+
+func (cc *ControlChannel) AdmitRegistration(realm string, sessionTimeout int) {
+	// The current state is changing! Lock the access to the control channel
+	// object until we're finished.
+	// cc.Lock()
+	// defer cc.Unlock()
+
+	cc.Lock()
+	cc.status = ConnectionStatusRegistered
+	cc.realm = realm
+	cc.sessionTimeout = sessionTimeout
+	cc.Unlock()
+
+	// Start the session timeout timer. If client doesn't send a ping withing
+	// given timeout the connection will be closed.
+	go cc.waitForPingOrClose()
+
+	log.Infof("controlchannel registered successful for device '%s'", realm)
 }
 
 func (cc *ControlChannel) waitForReqistrationOrClose() {
@@ -93,27 +136,14 @@ func (cc *ControlChannel) closeWebSocket() {
 	}
 }
 
-func (cc *ControlChannel) HandleMessage(data []byte) ([]byte, Flag, error) {
-	log.Infof("controlchannel handles message '%s'", string(data))
-
-	// Unmarshal the message to get the message type for further processing.
-	msgType, msg, err := proto.UnmarshalMessage(data)
-	if err != nil {
-		return terminateAndLogError("invalid payload", err)
-	}
-
-	switch msgType {
-	case proto.MessageTypeHello:
-		return cc.handleMessage(msg, cc.helloHandler())
-	case proto.MessageTypePing:
-		return cc.handleMessage(msg, cc.ensureRegistered(cc.keepAliveHandler()))
-	}
-
-	return terminateAndLog("unhandled message")
-}
-
 func (cc *ControlChannel) handleMessage(msg interface{}, h messageHandler) ([]byte, Flag, error) {
+	// We lock the access to control channel object until we handled the
+	// complete message. This ensures that we can safely modify the object and
+	// that the current state isn't touched meanwhile.
+	cc.Lock()
 	cc.lastMessageAt = time.Now()
+	cc.Unlock()
+
 	return h.Handle(msg)
 }
 
@@ -124,36 +154,18 @@ func (cc *ControlChannel) helloHandler() messageHandlerFunc {
 			return terminateAndLogError("hello message expected", err)
 		}
 
-		// Do authentication
-		/*if helloMsg.Realm != "test" {
-			log.Warnf("controlchannel rejected for device '%s'", helloMsg.Realm)
-			return abortMessageAndClose("ERR_NO_SUCH_REALM", nil)
-		}*/
+		// Notify the waitForReqistrationOrClose go routine that we're about to
+		// register the connection, otherwise the connection will be closed.
+		cc.registeredCh <- true
+
 		sessID, details, err := cc.ctrl.RegisterControlChannel(cc, helloMsg.Realm)
 		if err != nil {
 			log.Warnf("controlchannel rejected for device '%s'", helloMsg.Realm)
 			return abortMessageAndClose("ERR_NO_SUCH_REALM", nil)
 		}
 
-		// Complete the registration process
-		cc.completeRegistration(helloMsg.Realm)
-
 		return welcomeMessage(sessID, details)
 	})
-}
-
-func (cc *ControlChannel) completeRegistration(realm string) {
-	// Notify the waitForReqistrationOrClose go routine that the successfully
-	// registered the connection, otherwise the connection will be closed.
-	cc.registeredCh <- true
-
-	cc.status = ConnectionStatusRegistered
-
-	// Start the session timeout timer. If client doesn't send a ping withing
-	// given timeout the connection will be closed.
-	go cc.waitForPingOrClose()
-
-	log.Infof("controlchannel registered successful for device '%s'", realm)
 }
 
 func (cc *ControlChannel) waitForPingOrClose() {
@@ -196,6 +208,17 @@ func (cc *ControlChannel) keepAliveHandler() messageHandlerFunc {
 	})
 }
 
+func (cc *ControlChannel) eventHandler() messageHandlerFunc {
+	return messageHandlerFunc(func(msg interface{}) ([]byte, Flag, error) {
+		publishMsg, err := proto.MustPublishMessage(msg)
+		if err != nil {
+			return terminateAndLogError("publish message expected", err)
+		}
+
+		return publishedMessage(publishMsg.RequestID, 0)
+	})
+}
+
 func terminateAndLog(message string) ([]byte, Flag, error) {
 	log.Errorf("controlchannel terminates with message: %s", message)
 	return nil, FlagTerminate, nil
@@ -228,6 +251,16 @@ func welcomeMessage(sessionID int32, details interface{}) ([]byte, Flag, error) 
 
 func pongMessage() ([]byte, Flag, error) {
 	out, err := proto.MarshalNewPongMessage()
+	// This error should happen never! If it happens log an urgent error
+	// and terminate the websocket session for safety.
+	if err != nil {
+		return terminateAndLogError("could not marshal message", err)
+	}
+	return out, FlagContinue, nil
+}
+
+func publishedMessage(requestID, publicationID int32) ([]byte, Flag, error) {
+	out, err := proto.MarshalNewPublishedMessage(requestID, publicationID)
 	// This error should happen never! If it happens log an urgent error
 	// and terminate the websocket session for safety.
 	if err != nil {

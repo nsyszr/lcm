@@ -75,7 +75,7 @@ func UnmarshalMessage(data []byte) (MessageType, interface{}, error) {
 }
 
 func unmarshalHelloMessage(envelope []interface{}) (MessageType, interface{}, error) {
-	if len(envelope) != 3 {
+	if len(envelope) < 2 {
 		return MessageTypeInvalid, nil, fmt.Errorf("incomplete hello message")
 	}
 
@@ -84,30 +84,40 @@ func unmarshalHelloMessage(envelope []interface{}) (MessageType, interface{}, er
 		return MessageTypeInvalid, nil, fmt.Errorf("hello message contains invalid realm type")
 	}
 
+	var details interface{}
+	if len(envelope) == 3 {
+		details = envelope[2]
+	}
+
 	return MessageTypeHello, HelloMessage{
 		Realm:   realm,
-		Details: envelope[2],
+		Details: details,
 	}, nil
 }
 
 func unmarshalWelcomeMessage(envelope []interface{}) (MessageType, interface{}, error) {
-	if len(envelope) != 3 {
+	if len(envelope) < 2 {
 		return MessageTypeInvalid, nil, fmt.Errorf("incomplete welcome message")
 	}
 
-	sessID, ok := envelope[1].(int32)
+	sessID, ok := envelope[1].(float64)
 	if !ok {
 		return MessageTypeInvalid, nil, fmt.Errorf("welcome message contains invalid session ID type")
 	}
 
+	var details interface{}
+	if len(envelope) == 3 {
+		details = envelope[2]
+	}
+
 	return MessageTypeWelcome, WelcomeMessage{
-		SessionID: sessID,
-		Details:   envelope[2],
+		SessionID: int32(sessID),
+		Details:   details,
 	}, nil
 }
 
 func unmarshalAbortMessage(envelope []interface{}) (MessageType, interface{}, error) {
-	if len(envelope) != 3 {
+	if len(envelope) < 2 {
 		return MessageTypeInvalid, nil, fmt.Errorf("incomplete abort message")
 	}
 
@@ -116,38 +126,53 @@ func unmarshalAbortMessage(envelope []interface{}) (MessageType, interface{}, er
 		return MessageTypeInvalid, nil, fmt.Errorf("abort message contains invalid reason type")
 	}
 
+	var details interface{}
+	if len(envelope) == 3 {
+		details = envelope[2]
+	}
+
 	return MessageTypeAbort, AbortMessage{
 		Reason:  reason,
-		Details: envelope[2],
+		Details: details,
 	}, nil
 }
 
 func unmarshalPingMessage(envelope []interface{}) (MessageType, interface{}, error) {
-	if len(envelope) != 2 {
+	if len(envelope) < 1 {
 		return MessageTypeInvalid, nil, fmt.Errorf("incomplete ping message")
 	}
 
+	var details interface{}
+	if len(envelope) == 2 {
+		details = envelope[1]
+	}
+
 	return MessageTypePing, PingMessage{
-		Details: envelope[1],
+		Details: details,
 	}, nil
 }
 
 func unmarshalPongMessage(envelope []interface{}) (MessageType, interface{}, error) {
-	if len(envelope) != 2 {
+	if len(envelope) < 1 {
 		return MessageTypeInvalid, nil, fmt.Errorf("incomplete pong message")
 	}
 
+	var details interface{}
+	if len(envelope) == 2 {
+		details = envelope[1]
+	}
+
 	return MessageTypePong, PongMessage{
-		Details: envelope[1],
+		Details: details,
 	}, nil
 }
 
 func unmarshalCallMessage(envelope []interface{}) (MessageType, interface{}, error) {
-	if len(envelope) != 4 {
+	if len(envelope) < 3 {
 		return MessageTypeInvalid, nil, fmt.Errorf("incomplete call message")
 	}
 
-	reqID, ok := envelope[1].(int32)
+	reqID, ok := envelope[1].(float64)
 	if !ok {
 		return MessageTypeInvalid, nil, fmt.Errorf("call message contains invalid request ID type")
 	}
@@ -157,10 +182,15 @@ func unmarshalCallMessage(envelope []interface{}) (MessageType, interface{}, err
 		return MessageTypeInvalid, nil, fmt.Errorf("call message contains invalid operation type")
 	}
 
+	var args interface{}
+	if len(envelope) == 4 {
+		args = envelope[3]
+	}
+
 	return MessageTypeCall, CallMessage{
-		RequestID: reqID,
+		RequestID: int32(reqID),
 		Operation: op,
-		Arguments: envelope[3],
+		Arguments: args,
 	}, nil
 }
 
@@ -169,19 +199,19 @@ func unmarshalResultMessage(envelope []interface{}) (MessageType, interface{}, e
 		return MessageTypeInvalid, nil, fmt.Errorf("incomplete result message")
 	}
 
-	reqID, ok := envelope[1].(int32)
+	reqID, ok := envelope[1].(float64)
 	if !ok {
 		return MessageTypeInvalid, nil, fmt.Errorf("result message contains invalid request ID type")
 	}
 
 	return MessageTypeResult, ResultMessage{
-		RequestID: reqID,
+		RequestID: int32(reqID),
 		Results:   envelope[2],
 	}, nil
 }
 
 func unmarshalErrorMessage(envelope []interface{}) (MessageType, interface{}, error) {
-	if len(envelope) != 5 {
+	if len(envelope) < 4 {
 		return MessageTypeInvalid, nil, fmt.Errorf("incomplete error message")
 	}
 
@@ -190,7 +220,7 @@ func unmarshalErrorMessage(envelope []interface{}) (MessageType, interface{}, er
 		return MessageTypeInvalid, nil, fmt.Errorf("error message contains invalid or unknown message type")
 	}
 
-	reqID, ok := envelope[2].(int32)
+	reqID, ok := envelope[2].(float64)
 	if !ok {
 		return MessageTypeInvalid, nil, fmt.Errorf("error message contains invalid request ID type")
 	}
@@ -200,11 +230,16 @@ func unmarshalErrorMessage(envelope []interface{}) (MessageType, interface{}, er
 		return MessageTypeInvalid, nil, fmt.Errorf("error message contains invalid error type")
 	}
 
+	var details interface{}
+	if len(envelope) == 5 {
+		details = envelope[4]
+	}
+
 	return MessageTypeError, ErrorMessage{
 		MessageType: msgType,
-		RequestID:   reqID,
+		RequestID:   int32(reqID),
 		Error:       e,
-		Details:     envelope[4],
+		Details:     details,
 	}, nil
 }
 
@@ -213,7 +248,7 @@ func unmarshalPublishMessage(envelope []interface{}) (MessageType, interface{}, 
 		return MessageTypeInvalid, nil, fmt.Errorf("incomplete publish message")
 	}
 
-	reqID, ok := envelope[1].(int32)
+	reqID, ok := envelope[1].(float64)
 	if !ok {
 		return MessageTypeInvalid, nil, fmt.Errorf("publish message contains invalid request ID type")
 	}
@@ -224,7 +259,7 @@ func unmarshalPublishMessage(envelope []interface{}) (MessageType, interface{}, 
 	}
 
 	return MessageTypePublish, PublishMessage{
-		RequestID: reqID,
+		RequestID: int32(reqID),
 		Topic:     topic,
 		Arguments: envelope[3],
 	}, nil
@@ -235,18 +270,18 @@ func unmarshalPublishedMessage(envelope []interface{}) (MessageType, interface{}
 		return MessageTypeInvalid, nil, fmt.Errorf("incomplete published message")
 	}
 
-	reqID, ok := envelope[1].(int32)
+	reqID, ok := envelope[1].(float64)
 	if !ok {
 		return MessageTypeInvalid, nil, fmt.Errorf("published message contains invalid request ID type")
 	}
 
-	pubID, ok := envelope[2].(int32)
+	pubID, ok := envelope[2].(float64)
 	if !ok {
 		return MessageTypeInvalid, nil, fmt.Errorf("published message contains invalid publication ID type")
 	}
 
 	return MessageTypePublished, PublishedMessage{
-		RequestID:     reqID,
-		PublicationID: pubID,
+		RequestID:     int32(reqID),
+		PublicationID: int32(pubID),
 	}, nil
 }

@@ -36,33 +36,29 @@ func NewController() *Controller {
 // RegisterControlChannel checks for existence of realm and returns on success
 // a session ID and additional detials for the client.
 func (ctrl *Controller) RegisterControlChannel(cc *ControlChannel, realm string) (int32, *RegistrationDetails, error) {
-	if realm != "test" {
+	if realm != "test@test" {
 		return 0, nil, fmt.Errorf("ERR_NO_SUCH_REALM")
 	}
 
 	// Create a new session id and add control channel to active connections
-	ctrl.Lock()
-	defer ctrl.Unlock()
-
+	// TODO(DGL) Add loop for unique session ID
 	sessID := random(1, 2^31)
-
+	ctrl.Lock()
 	ctrl.connections[sessID] = cc
 	ctrl.sessions[realm] = newSession(false, sessID)
-
-	// TODO(DGL) Take the existing completeRegistration method of cc, add a
-	// sync.RWMutex to ControlChannel struct and change the values inside the
-	// method instead here!
-	cc.sessionTimeout = 120
-
+	ctrl.Unlock()
 	log.Infof("controller add successfully a new control channel session with ID: %d", sessID)
 
+	// Tell control channel that the registration is admitted
+	cc.AdmitRegistration(realm, 120)
+
+	// Return the results of the registration to the control channel
 	details := &RegistrationDetails{
-		SessionTimeout: 120,
-		PingInterval:   104,
-		PongTimeout:    16,
+		SessionTimeout: 20,
+		PingInterval:   16,
+		PongTimeout:    4,
 		EventsTopic:    "iotcore.devicecontrol.events",
 	}
-
 	return sessID, details, nil
 }
 
