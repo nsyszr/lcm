@@ -8,6 +8,7 @@ import (
 	"github.com/gobwas/ws/wsutil"
 	"github.com/labstack/echo"
 	nats "github.com/nats-io/nats.go"
+	"github.com/nsyszr/lcm/pkg/devicecontrol/connection"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -15,6 +16,7 @@ import (
 type Handler struct {
 	sessions map[int32]*session
 	nc       *nats.Conn
+	ctrl     *connection.Controller
 	sync.RWMutex
 }
 
@@ -23,6 +25,7 @@ func NewHandler(nc *nats.Conn) *Handler {
 	return &Handler{
 		sessions: make(map[int32]*session),
 		nc:       nc,
+		ctrl:     connection.NewController(),
 	}
 }
 
@@ -63,29 +66,8 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 		// The websocket connection is established, let's create a session.
 		// The Close methods ensures that the session is removed from the
 		// session table on exit.
-		sess, err := newSession(h, instanceID)
-		if err != nil {
-			return err
-		}
-		defer sess.close()
-
-		/*go func(w *wsutil.Writer) {
-			time.Sleep(10 * time.Second)
-
-			w.Reset(conn, state, ws.OpClose)
-
-			// Write empty string
-			if _, err = w.Write([]byte("")); err == nil {
-				err = w.Flush()
-			}
-			if err != nil {
-				// TODO We should attach this information to the device log perhaps.
-				log.Errorf("websocket write error: %s", err)
-				return
-			}
-
-			// conn.Close()
-		}(w)*/
+		cc := connection.NewControlChannel(h.ctrl, conn, w)
+		defer cc.Close()
 
 		// We're entering now the main loop for a clients specific websocket
 		// connection. We don't need to spawn a extra goroutine for each client!
@@ -119,7 +101,7 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 				// Handle the control frame
 				if err = ch(h, r); err != nil {
 					// TODO We should attach this information to the device log perhaps.
-					log.Errorf("websocket handle control frame error: %v", err)
+					log.Errorf("websocket handles control frame error: %v", err)
 					return nil
 				}
 				continue
@@ -128,12 +110,12 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 			// Read all data from websocket client
 			req, err := ioutil.ReadAll(r)
 			if err != nil {
-				log.Errorf("websocked read error: %v", err)
+				log.Errorf("websocket read error: %v", err)
 				return nil
 			}
 
 			// Handle the received data
-			res, flag, err := sess.handle(req)
+			res, flag, err := cc.HandleMessage(req)
 			if err != nil {
 				log.Errorf("websocked handle request error: %v", err)
 				return nil
@@ -161,7 +143,7 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 			// the client to close the connection. We will receive back a
 			// message with OpClose control frame and this will stop handling
 			// the websocket connection. See above.
-			if flag == FlagCloseGracefully {
+			if flag == connection.FlagCloseGracefully {
 				log.Info("websocket graceful close initiated")
 				// Setup the writer with OpClose control frame
 				w.Reset(conn, state, ws.OpClose)
@@ -182,9 +164,8 @@ func (h *Handler) websocketHandler() echo.HandlerFunc {
 
 			// Session handler told us to terminate the websocket connection.
 			// We exit the handler!
-			if flag == FlagTerminate {
+			if flag == connection.FlagTerminate {
 				log.Info("websocket terminated")
-				// conn.Close()
 				return nil
 			}
 		}
