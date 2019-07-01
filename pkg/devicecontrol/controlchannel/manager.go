@@ -1,14 +1,13 @@
-package connection
+package controlchannel
 
 import (
-	"fmt"
 	"math/rand"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
 )
 
-type Controller struct {
+type Manager struct {
 	connections map[int32]*ControlChannel
 	sessions    map[string]*Session
 	sync.RWMutex
@@ -19,47 +18,52 @@ type Session struct {
 	sessionIDs       []int32
 }
 
-type RegistrationDetails struct {
-	SessionTimeout int    `json:"session_timeout,omitempty"`
-	PingInterval   int    `json:"ping_interval,omitempty"`
-	PongTimeout    int    `json:"pong_max_wait_time,omitempty"`
-	EventsTopic    string `json:"events_topic,omitempty"`
-}
-
-func NewController() *Controller {
-	return &Controller{
+func NewManager() *Manager {
+	return &Manager{
 		connections: make(map[int32]*ControlChannel, 0),
 		sessions:    make(map[string]*Session, 0),
 	}
 }
 
-// RegisterControlChannel checks for existence of realm and returns on success
-// a session ID and additional detials for the client.
-func (ctrl *Controller) RegisterControlChannel(cc *ControlChannel, realm string) (int32, *RegistrationDetails, error) {
+// Register checks first for existence of realm and on success it's starts a
+// new session, returns the session ID and details that are sent to the client.
+func (mgr *Manager) Register(cc *ControlChannel, realm string) (int32, interface{}, error) {
 	if realm != "test@test" {
-		return 0, nil, fmt.Errorf("ERR_NO_SUCH_REALM")
+		return 0, nil, NewRegistrationError(ErrReasonNoSuchRelam, nil)
 	}
 
 	// Create a new session id and add control channel to active connections
 	// TODO(DGL) Add loop for unique session ID
 	sessID := random(1, 2^31)
-	ctrl.Lock()
-	ctrl.connections[sessID] = cc
-	ctrl.sessions[realm] = newSession(false, sessID)
-	ctrl.Unlock()
+	mgr.Lock()
+	mgr.connections[sessID] = cc
+	mgr.sessions[realm] = newSession(false, sessID)
+	mgr.Unlock()
 	log.Infof("controller add successfully a new control channel session with ID: %d", sessID)
 
 	// Tell control channel that the registration is admitted
-	cc.AdmitRegistration(realm, 120)
+	cc.AdmitRegistration(sessID, realm, 120)
 
 	// Return the results of the registration to the control channel
-	details := &RegistrationDetails{
+	type registrationDetails struct {
+		SessionTimeout int    `json:"session_timeout,omitempty"`
+		PingInterval   int    `json:"ping_interval,omitempty"`
+		PongTimeout    int    `json:"pong_max_wait_time,omitempty"`
+		EventsTopic    string `json:"events_topic,omitempty"`
+	}
+
+	details := &registrationDetails{
 		SessionTimeout: 20,
 		PingInterval:   16,
 		PongTimeout:    4,
 		EventsTopic:    "iotcore.devicecontrol.events",
 	}
 	return sessID, details, nil
+}
+
+// Unregister removes a session from the connection and session list.
+func (mgr *Manager) Unregister(sessionID int32) {
+	// Do something
 }
 
 func newSession(duplicateAllowed bool, sessionID int32) *Session {

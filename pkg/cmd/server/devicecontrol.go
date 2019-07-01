@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/middleware"
 	nats "github.com/nats-io/nats.go"
 	"github.com/nsyszr/lcm/pkg/devicecontrol"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -31,6 +32,11 @@ type deviceControlServer struct {
 func init() {
 	// Log as JSON instead of the default ASCII formatter.
 	// log.SetFormatter(&log.JSONFormatter{})
+
+	formatter := &logrus.TextFormatter{
+		FullTimestamp: true,
+	}
+	logrus.SetFormatter(formatter)
 
 	// Output to stdout instead of the default stderr
 	// Can be any io.Writer, see below for File example
