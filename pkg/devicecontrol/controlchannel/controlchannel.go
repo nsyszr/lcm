@@ -1,10 +1,13 @@
 package controlchannel
 
 import (
+	"encoding/json"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/nats-io/nats.go"
+	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel/message"
 	"github.com/nsyszr/lcm/pkg/devicecontrol/proto"
 	log "github.com/sirupsen/logrus"
 )
@@ -18,7 +21,8 @@ const (
 
 type ControlChannel struct {
 	sync.RWMutex
-	mgr            *Manager
+	ctrl           *Controller
+	nc             *nats.Conn
 	conn           net.Conn
 	status         Status
 	lastMessageAt  time.Time
@@ -31,6 +35,8 @@ type ControlChannel struct {
 	wsTerminateCh  chan<- struct{}
 	wsCloseCh      chan struct{}
 	wsOutboxCh     chan *Response
+	nextRequestID  int32
+	resultChannels map[int32]chan<- interface{}
 }
 
 type Flag int
@@ -46,37 +52,13 @@ type Response struct {
 	Data []byte
 }
 
-// New creates a control channel handler
-func New(mgr *Manager, conn net.Conn, terminateCh chan<- struct{}) *ControlChannel {
-	cc := &ControlChannel{
-		mgr:           mgr,
-		conn:          conn,
-		status:        StatusEstablished,
-		stopCh:        make(chan bool),
-		registeredCh:  make(chan bool),
-		pingCh:        make(chan bool),
-		wsTerminateCh: terminateCh,
-		wsCloseCh:     make(chan struct{}),
-		wsOutboxCh:    make(chan *Response, 100),
-	}
-
-	go cc.inboxWorker()
-	go cc.outboxWorker()
-
-	// Start the go routine which ensures that registration happens within
-	// given period.
-	go cc.waitForReqistrationOrClose()
-
-	return cc
-}
-
 // Close is called when the websocket handler method is exiting, e.g. the
 // connection is closed.
 func (cc *ControlChannel) Close() {
 	// Tell our go waitForPingOrClose routines to stop listening for a signal
 	cc.stopCh <- true
 	// Unregister the control channel from the controller
-	cc.mgr.Unregister(cc.sessionID)
+	cc.ctrl.UnregisterSession(cc.sessionID)
 }
 
 // HandleMessage is called by the websocket handler when data is received from
@@ -97,6 +79,8 @@ func (cc *ControlChannel) HandleMessage(data []byte) ([]byte, Flag, error) {
 		return cc.handleMessage(msg, cc.ensureRegistered(cc.keepAliveHandler()))
 	case proto.MessageTypePublish:
 		return cc.handleMessage(msg, cc.ensureRegistered(cc.eventHandler()))
+	case proto.MessageTypeResult:
+		return cc.handleMessage(msg, cc.ensureRegistered(cc.resultHandler()))
 	}
 
 	return cc.terminateAndLog("unhandled message")
@@ -122,6 +106,9 @@ func (cc *ControlChannel) AdmitRegistration(sessionID int32, realm string, sessi
 	// Start the session timeout timer. If client doesn't send a ping withing
 	// given timeout the connection will be closed.
 	go cc.waitForPingOrClose()
+
+	// Listen for call requests
+	go cc.subscribe()
 
 	log.Infof("controlchannel registered successful for device '%s'", realm)
 }
@@ -166,7 +153,7 @@ func (cc *ControlChannel) handleMessage(msg interface{}, h messageHandler) ([]by
 	// complete message. This ensures that we can safely modify the object and
 	// that the current state isn't touched meanwhile.
 	cc.Lock()
-	cc.lastMessageAt = time.Now()
+	cc.lastMessageAt = time.Now().Round(time.Second).UTC()
 	cc.Unlock()
 
 	return h.Handle(msg)
@@ -184,7 +171,7 @@ func (cc *ControlChannel) helloHandler() messageHandlerFunc {
 		// during registration.
 		cc.registeredCh <- true
 
-		sessID, details, err := cc.mgr.Register(cc, helloMsg.Realm)
+		sessID, details, err := cc.ctrl.RegisterSession(cc, helloMsg.Realm)
 		if err != nil && IsRegistrationError(err) {
 			log.Warnf("controlchannel rejected for device '%s'", helloMsg.Realm)
 			e := err.(*RegistrationError)
@@ -245,7 +232,85 @@ func (cc *ControlChannel) eventHandler() messageHandlerFunc {
 			return cc.terminateAndLogError("publish message expected", err)
 		}
 
-		return cc.publishedMessage(publishMsg.RequestID, 0)
+		req := message.PublishRequest{
+			SourceType: message.SourceTypeDevice,
+			SourceID:   "test",
+			TargetType: message.TargetTypeSystem,
+			Topic:      publishMsg.Topic,
+			Arguments:  publishMsg.Arguments,
+		}
+
+		requestData, err := json.Marshal(req)
+		if err != nil {
+			return cc.terminateAndLogError("failed to marshal publish request", err)
+		}
+
+		// TODO(DGL) remove hardcoded namespace 'default'
+		replyMsg, err := cc.nc.Request("iotcore.devicecontrol.v1.default.publish", requestData, 16*time.Second)
+		if err != nil {
+			return cc.terminateAndLogError("failed to request publish", err)
+		}
+
+		rep := message.PublishReply{}
+		if err := json.Unmarshal(replyMsg.Data, &rep); err != nil {
+			return cc.terminateAndLogError("failed to unmarshal publish reply", err)
+		}
+
+		if rep.Status == message.ReplyStatusError {
+			return cc.errorMessage(proto.MessageTypePublish, publishMsg.RequestID, rep.ErrorReason, rep.ErrorDetails)
+		}
+
+		return cc.publishedMessage(publishMsg.RequestID, rep.PublicationID)
+	})
+}
+
+func (cc *ControlChannel) resultHandler() messageHandlerFunc {
+	return messageHandlerFunc(func(msg interface{}) ([]byte, Flag, error) {
+		resultMsg, err := proto.MustResultMessage(msg)
+		if err != nil {
+			return cc.terminateAndLogError("result message expected", err)
+		}
+
+		// Get the result chan
+		cc.Lock()
+		resultCh, ok := cc.resultChannels[resultMsg.RequestID]
+		if !ok {
+			// TODO(DGL) should we terminate the control channel here?
+			// log.Error("controlchannel received result but cannot find a response channel. ")
+			return cc.terminateAndLog("received result message but cannot find a response channel.")
+		}
+		resultCh <- resultMsg
+		delete(cc.resultChannels, resultMsg.RequestID)
+		cc.Unlock()
+
+		return cc.continueWithoutMessage()
+	})
+}
+
+func (cc *ControlChannel) errorHandler() messageHandlerFunc {
+	return messageHandlerFunc(func(msg interface{}) ([]byte, Flag, error) {
+		/*resultMsg, err := proto.MustResultMessage(msg)
+		if err != nil {
+			return cc.terminateAndLogError("result message expected", err)
+		}
+
+		// Get the result chan
+		cc.Lock()
+		resultCh, ok := cc.resultChannels[resultMsg.RequestID]
+		if !ok {
+			// TODO(DGL) should we terminate the control channel here?
+			// log.Error("controlchannel received result but cannot find a response channel. ")
+			return cc.terminateAndLog("received result message but cannot find a response channel.")
+		}
+		resultCh <- resultMsg
+		delete(cc.resultChannels, resultMsg.RequestID)
+		cc.Unlock()*/
+
+		// TODO(DGL) We can receive errors for call and publish messages. Handle
+		// these errors here.
+		log.Info("controlchannel received error message")
+
+		return cc.continueWithoutMessage()
 	})
 }
 
@@ -294,6 +359,17 @@ func (cc *ControlChannel) pongMessage() ([]byte, Flag, error) {
 	return out, FlagContinue, nil
 }
 
+func (cc *ControlChannel) errorMessage(msgType proto.MessageType, requestID int32, reason string, details interface{}) ([]byte, Flag, error) {
+	out, err := proto.MarshalNewErrorMessage(msgType, requestID, reason, details)
+	// This error should happen never! If it happens log an urgent error
+	// and terminate the websocket session for safety.
+	if err != nil {
+		return cc.terminateAndLogError("could not marshal message", err)
+	}
+	cc.pushBackMessage(FlagContinue, out)
+	return out, FlagContinue, nil
+}
+
 func (cc *ControlChannel) publishedMessage(requestID, publicationID int32) ([]byte, Flag, error) {
 	out, err := proto.MarshalNewPublishedMessage(requestID, publicationID)
 	// This error should happen never! If it happens log an urgent error
@@ -305,6 +381,28 @@ func (cc *ControlChannel) publishedMessage(requestID, publicationID int32) ([]by
 	return out, FlagContinue, nil
 }
 
+func (cc *ControlChannel) pushCallMessage(resultCh chan<- interface{}, operation string, arguments interface{}) error {
+	cc.Lock()
+	requestID := cc.getNextRequestID()
+	cc.resultChannels[requestID] = resultCh
+	cc.Unlock()
+
+	out, err := proto.MarshalNewCallMessage(requestID, operation, arguments)
+	// This error should happen never! If it happens log an urgent error
+	// and terminate the websocket session for safety.
+	if err != nil {
+		return err
+	}
+
+	// TODO(DGL) handle full chan buffer
+	cc.pushBackMessage(FlagContinue, out)
+	return nil
+}
+
+func (cc *ControlChannel) continueWithoutMessage() ([]byte, Flag, error) {
+	return nil, FlagContinue, nil
+}
+
 func (cc *ControlChannel) pushBackMessage(flag Flag, data []byte) bool {
 	select {
 	case cc.wsOutboxCh <- newResponse(flag, data):
@@ -312,6 +410,12 @@ func (cc *ControlChannel) pushBackMessage(flag Flag, data []byte) bool {
 	default:
 		return false // Buffer is full
 	}
+}
+
+func (cc *ControlChannel) getNextRequestID() int32 {
+	requestID := cc.nextRequestID
+	cc.nextRequestID++
+	return requestID
 }
 
 func newResponse(flag Flag, data []byte) *Response {

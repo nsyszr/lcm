@@ -147,6 +147,11 @@ func MarshalNewAbortMessage(reason string, details interface{}) ([]byte, error) 
 	return MarshalMessage(msg)
 }
 
+func MarshalNewErrorMessage(msgType MessageType, requestID int32, reason string, details interface{}) ([]byte, error) {
+	msg := ErrorMessage{MessageType: msgType, RequestID: requestID, Error: reason, Details: details}
+	return MarshalMessage(msg)
+}
+
 func MarshalNewWelcomeMessage(sessionID int32, details interface{}) ([]byte, error) {
 	msg := WelcomeMessage{SessionID: sessionID, Details: details}
 	return MarshalMessage(msg)
@@ -161,6 +166,15 @@ func MarshalNewPublishedMessage(requestID, publicationID int32) ([]byte, error) 
 	msg := PublishedMessage{
 		RequestID:     requestID,
 		PublicationID: publicationID,
+	}
+	return MarshalMessage(msg)
+}
+
+func MarshalNewCallMessage(requestID int32, operation string, arguments interface{}) ([]byte, error) {
+	msg := CallMessage{
+		RequestID: requestID,
+		Operation: operation,
+		Arguments: arguments,
 	}
 	return MarshalMessage(msg)
 }

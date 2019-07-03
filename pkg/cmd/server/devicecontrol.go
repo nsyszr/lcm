@@ -15,14 +15,16 @@ import (
 	"github.com/labstack/echo/middleware"
 	nats "github.com/nats-io/nats.go"
 	"github.com/nsyszr/lcm/pkg/devicecontrol"
+	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel"
+	"github.com/nsyszr/lcm/pkg/storage/memory"
 	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
 type deviceControlServer struct {
-	quitAPI chan bool
-	doneAPI chan bool
+	quitCh chan bool
+	doneCh chan bool
 
 	nc    *nats.Conn
 	errCh chan error
@@ -49,8 +51,8 @@ func init() {
 func newDeviceControlServer() (*deviceControlServer, error) {
 	s := &deviceControlServer{
 		// mgr:     memory.NewMemoryManager(),
-		quitAPI: make(chan bool),
-		doneAPI: make(chan bool),
+		quitCh: make(chan bool),
+		doneCh: make(chan bool),
 
 		errCh: make(chan error, 1),
 		wg:    sync.WaitGroup{},
@@ -93,8 +95,12 @@ func (s *deviceControlServer) Serve() {
 	e.Use(logger())
 	// e.HTTPErrorHandler = errorx.JSONErrorHandler
 
+	// Create the controller
+	ctrl := controlchannel.NewController(s.nc, memory.NewStore())
+	ctrl.Subscribe()
+
 	// Register API endpoints
-	deviceControlHandler := devicecontrol.NewHandler(s.nc)
+	deviceControlHandler := devicecontrol.NewHandler(ctrl)
 	deviceControlHandler.RegisterRoutes(e)
 
 	// Register devicecontrol endpoint
@@ -112,7 +118,7 @@ func (s *deviceControlServer) Serve() {
 	}()
 
 	// Wait until receiving the quit signal
-	<-s.quitAPI
+	<-s.quitCh
 	log.Info("Shutdown signal received")
 
 	// Create a 10 second timeout context
@@ -125,7 +131,7 @@ func (s *deviceControlServer) Serve() {
 	}
 
 	// We've done!
-	s.doneAPI <- true
+	s.doneCh <- true
 }
 
 // Logger returns a middleware that logs HTTP requests.
@@ -190,11 +196,11 @@ func (s *deviceControlServer) Shutdown() {
 	}
 
 	// Send the quit signal to the server.ServeAPI() routine
-	s.quitAPI <- true
+	s.quitCh <- true
 
 	// Wait up to 10 seconds
 	select {
-	case <-s.doneAPI:
+	case <-s.doneCh:
 		log.Info("Shutdown server successful")
 	case <-time.After(10 * time.Second):
 		log.Error("Shutdown server failed")
@@ -212,9 +218,9 @@ func RunServeDeviceControl() func(cmd *cobra.Command, args []string) {
 		go s.Serve()
 
 		// Wait for interrupt signal to gracefully shutdown the server
-		quit := make(chan os.Signal)
-		signal.Notify(quit, os.Interrupt)
-		<-quit
+		quitCh := make(chan os.Signal)
+		signal.Notify(quitCh, os.Interrupt)
+		<-quitCh
 
 		// Shutdown the server
 		s.Shutdown()

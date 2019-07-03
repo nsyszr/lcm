@@ -19,3 +19,12 @@ func MustPublishMessage(v interface{}) (*PublishMessage, error) {
 
 	return &msg, nil
 }
+
+func MustResultMessage(v interface{}) (*ResultMessage, error) {
+	msg, ok := v.(ResultMessage)
+	if !ok {
+		return nil, fmt.Errorf("not a result message")
+	}
+
+	return &msg, nil
+}

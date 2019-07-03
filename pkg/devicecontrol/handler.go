@@ -1,29 +1,21 @@
 package devicecontrol
 
 import (
-	"sync"
-
 	"github.com/gobwas/ws"
 	"github.com/labstack/echo"
-	nats "github.com/nats-io/nats.go"
 	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel"
 	log "github.com/sirupsen/logrus"
 )
 
 // Handler contains all properties to serve the API
 type Handler struct {
-	sessions map[int32]*session
-	nc       *nats.Conn
-	mgr      *controlchannel.Manager
-	sync.RWMutex
+	ctrl *controlchannel.Controller
 }
 
 // NewHandler create a new API handler
-func NewHandler(nc *nats.Conn) *Handler {
+func NewHandler(ctrl *controlchannel.Controller) *Handler {
 	return &Handler{
-		sessions: make(map[int32]*session),
-		nc:       nc,
-		mgr:      controlchannel.NewManager(),
+		ctrl: ctrl,
 	}
 }
 
@@ -43,7 +35,7 @@ func (h *Handler) controlChannelHandler() echo.HandlerFunc {
 		defer conn.Close()
 
 		terminateCh := make(chan struct{})
-		cc := controlchannel.New(h.mgr, conn, terminateCh)
+		cc := h.ctrl.NewControlChannel(conn, terminateCh)
 		defer cc.Close()
 		<-terminateCh
 		return nil
