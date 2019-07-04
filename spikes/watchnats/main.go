@@ -17,7 +17,7 @@ func main() {
 	defer nc.Close()
 
 	// Subscribe
-	if _, err := nc.Subscribe("iotcore.devicecontrol.v1.>", func(m *nats.Msg) {
+	if _, err := nc.Subscribe("iotcore.devicecontrol.v1.default.events.>", func(m *nats.Msg) {
 		fmt.Printf("subject: %s, message: %s\n", m.Subject, string(m.Data))
 	}); err != nil {
 		log.Fatal(err)

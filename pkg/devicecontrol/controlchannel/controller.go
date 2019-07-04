@@ -3,9 +3,9 @@ package controlchannel
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel/websocket"
 	"github.com/nsyszr/lcm/pkg/storage"
 	log "github.com/sirupsen/logrus"
 )
@@ -49,24 +49,28 @@ func (ctrl *Controller) Subscribe() error {
 }
 
 // NewControlChannel creates a control channel handler
-func (ctrl *Controller) NewControlChannel(conn net.Conn, terminateCh chan<- struct{}) *ControlChannel {
+func (ctrl *Controller) NewControlChannel(driver *websocket.WebSocketDriver /*conn net.Conn, terminateCh chan<- struct{}*/) *ControlChannel {
 	cc := &ControlChannel{
-		ctrl:           ctrl,
-		nc:             ctrl.nc,
-		conn:           conn,
-		status:         StatusEstablished,
-		stopCh:         make(chan bool),
-		registeredCh:   make(chan bool),
-		pingCh:         make(chan bool),
-		wsTerminateCh:  terminateCh,
-		wsCloseCh:      make(chan struct{}),
-		wsOutboxCh:     make(chan *Response, 100),
+		ctrl: ctrl,
+		nc:   ctrl.nc,
+		// conn:         conn,
+		status:       StatusEstablished,
+		stopCh:       make(chan bool),
+		registeredCh: make(chan bool),
+		pingCh:       make(chan bool),
+		// wsTerminateCh: terminateCh,
+		// wsCloseCh:     make(chan struct{}),
+		target: driver, /*websocket.NewWebSocketDriver(conn, terminateCh),*/
+		// wsOutboxCh:     make(chan *OutboxMessage, 100),
+		// inboxCh:        make(chan *InboxMessage, 100),
 		nextRequestID:  1,
 		resultChannels: make(map[int32]chan<- interface{}),
 	}
 
-	go cc.inboxWorker()
-	go cc.outboxWorker()
+	go cc.inboxHandler()
+	// go cc.target.Run()
+	// go webSocketInboxHandler(conn, cc.inboxCh, cc.wsTerminateCh)
+	// go webSocketOutboxHandler(conn, cc.wsOutboxCh, cc.wsCloseCh, cc.wsTerminateCh)
 
 	// Start the go routine which ensures that registration happens within
 	// given period.

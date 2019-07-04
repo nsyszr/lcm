@@ -14,6 +14,7 @@ type SessionStore interface {
 	FindByID(id int32) (*model.Session, error)
 	FindByNamespaceAndDeviceID(namespace, deviceID string) (*model.Session, error)
 	Create(m *model.Session) error
+	Delete(id int32) error
 }
 
 // EventStore is responsible for managing the Event model

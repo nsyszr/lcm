@@ -69,6 +69,20 @@ func (s *sessionStore) Create(m *model.Session) error {
 	return nil
 }
 
+func (s *sessionStore) Delete(id int32) error {
+	s.Lock()
+	defer s.Unlock()
+
+	_, ok := s.store[id]
+	if !ok {
+		return fmt.Errorf("not found")
+	}
+
+	delete(s.store, id)
+
+	return nil
+}
+
 func (s *sessionStore) getNextID() int32 {
 	id := s.nextID
 	s.nextID++

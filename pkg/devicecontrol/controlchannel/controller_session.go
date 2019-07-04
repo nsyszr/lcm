@@ -21,8 +21,19 @@ func (ctrl *Controller) RegisterSession(cc *ControlChannel, realm string) (int32
 		return 0, nil, NewRegistrationError(ErrReasonNoSuchRelam, nil)
 	}
 
+	// Check if session exists
+	// TODO(DGL) Fix hardcoded namespace
+	_, err := ctrl.store.Sessions().FindByNamespaceAndDeviceID("default", deviceIDAndURI[0])
+	if err != nil && err.Error() != "not found" {
+		return 0, nil, NewTechnicalExceptionError(nil)
+	}
+	if err == nil {
+		log.Warnf("controller rejected the control channel becuase session for '%s' exists already", deviceIDAndURI[0])
+		return 0, nil, NewRegistrationError("ERR_SESSION_EXISTS", nil)
+	}
+
 	// Create a new session in the store
-	// TODO(DGL) Add duplicate session handling here
+	// TODO(DGL) Fix hardcoded namespace
 	sess := model.Session{
 		Namespace:     "default",
 		DeviceID:      deviceIDAndURI[0],
@@ -65,4 +76,6 @@ func (ctrl *Controller) RegisterSession(cc *ControlChannel, realm string) (int32
 // UnregisterSession removes a session from the connection and session list.
 func (ctrl *Controller) UnregisterSession(sessionID int32) {
 	// Do something
+	ctrl.store.Sessions().Delete(sessionID)
+	log.Infof("controller removed successfully the control channel session with ID: %d", sessionID)
 }
