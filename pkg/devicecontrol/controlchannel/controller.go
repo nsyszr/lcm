@@ -54,7 +54,9 @@ func (ctrl *Controller) NewControlChannel(driver *websocket.WebSocketDriver /*co
 		ctrl: ctrl,
 		nc:   ctrl.nc,
 		// conn:         conn,
-		status:       StatusEstablished,
+		status:         StatusEstablished,
+		sessionDetails: &sessionDetails{},
+
 		stopCh:       make(chan bool),
 		registeredCh: make(chan bool),
 		pingCh:       make(chan bool),
@@ -63,8 +65,8 @@ func (ctrl *Controller) NewControlChannel(driver *websocket.WebSocketDriver /*co
 		target: driver, /*websocket.NewWebSocketDriver(conn, terminateCh),*/
 		// wsOutboxCh:     make(chan *OutboxMessage, 100),
 		// inboxCh:        make(chan *InboxMessage, 100),
-		nextRequestID:  1,
-		resultChannels: make(map[int32]chan<- interface{}),
+		nextRequestID: 1,
+		callResults:   make(map[int32]chan<- interface{}),
 	}
 
 	go cc.inboxHandler()

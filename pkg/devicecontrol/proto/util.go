@@ -28,3 +28,12 @@ func MustResultMessage(v interface{}) (*ResultMessage, error) {
 
 	return &msg, nil
 }
+
+func MustErrorMessage(v interface{}) (*ErrorMessage, error) {
+	msg, ok := v.(ErrorMessage)
+	if !ok {
+		return nil, fmt.Errorf("not a error message")
+	}
+
+	return &msg, nil
+}

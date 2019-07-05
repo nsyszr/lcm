@@ -20,26 +20,42 @@ const (
 	StatusRegistered
 )
 
+type sessionDetails struct {
+	id            int32
+	timeout       int
+	realm         string
+	lastMessageAt time.Time
+}
+
 type ControlChannel struct {
-	sync.RWMutex
+	// sync.RWMutex
 	ctrl *Controller
 	nc   *nats.Conn
 	// conn           net.Conn
-	status         Status
-	lastMessageAt  time.Time
-	stopCh         chan bool
-	registeredCh   chan bool
-	pingCh         chan bool
-	realm          string
-	sessionID      int32
-	sessionTimeout int
+	status Status
+
+	sessionDetails      *sessionDetails
+	sessionDetailsMutex sync.RWMutex
+
+	stopCh       chan bool
+	registeredCh chan bool
+	pingCh       chan bool
+	// realm          string
+	// sessionID      int32
+	// sessionTimeout int
 	// wsTerminateCh  chan<- struct{}
 	// wsCloseCh      chan struct{}
 	target *websocket.WebSocketDriver
 	// wsOutboxCh     chan *OutboxMessage
 	// inboxCh        chan *InboxMessage
-	nextRequestID  int32
-	resultChannels map[int32]chan<- interface{}
+
+	nextRequestIDMutex sync.RWMutex
+	nextRequestID      int32
+
+	callResultsMutex sync.RWMutex
+	callResults      map[int32]chan<- interface{}
+
+	subCall *nats.Subscription
 }
 
 // Close is called when the websocket handler method is exiting, e.g. the
@@ -48,39 +64,17 @@ func (cc *ControlChannel) Close() {
 	log.Debug("controlchannel close method called")
 
 	// Unregister the control channel from the controller
-	cc.ctrl.UnregisterSession(cc.sessionID)
+	cc.ctrl.UnregisterSession(cc.sessionDetails.id)
+
+	if cc.subCall != nil {
+		cc.subCall.Unsubscribe()
+	}
 
 	// Tell our go waitForPingOrClose routines to stop listening for a signal
 	cc.stopCh <- true
 }
 
-// HandleMessage is called by the websocket handler when data is received from
-// the connected client.
-/*func (cc *ControlChannel) HandleMessage(data []byte) ([]byte, Flag, error) {
-	log.Infof("controlchannel handles message '%s'", string(data))
-
-	// Unmarshal the message to get the message type for further processing.
-	msgType, msg, err := proto.UnmarshalMessage(data)
-	if err != nil {
-		return cc.terminateAndLogError("invalid payload", err)
-	}
-
-	switch msgType {
-	case proto.MessageTypeHello:
-		return cc.handleMessage(msg, cc.helloHandler())
-	case proto.MessageTypeAbort:
-		return cc.handleMessage(msg, cc.abortHandler())
-	case proto.MessageTypePing:
-		return cc.handleMessage(msg, cc.ensureRegistered(cc.keepAliveHandler()))
-	case proto.MessageTypePublish:
-		return cc.handleMessage(msg, cc.ensureRegistered(cc.eventHandler()))
-	case proto.MessageTypeResult:
-		return cc.handleMessage(msg, cc.ensureRegistered(cc.resultHandler()))
-	}
-
-	return cc.terminateAndLog("unhandled message")
-}*/
-
+// inboxHandler listen for messages on targets (websocket driver) inbox channel
 func (cc *ControlChannel) inboxHandler() {
 	for {
 		select {
@@ -134,18 +128,9 @@ func (cc *ControlChannel) inboxHandler() {
 // (authorization) of the client. This method sets neccessary values for
 // running the control channel and starts the keep alive handling in the
 // background (waitForPingOrClose).
-func (cc *ControlChannel) AdmitRegistration(sessionID int32, realm string, sessionTimeout int) {
-	// The current state is changing! Lock the access to the control channel
-	// object until we're finished.
-	// cc.Lock()
-	// defer cc.Unlock()
-
-	cc.Lock()
+func (cc *ControlChannel) AdmitRegistration(sessionID int32, timeout int, realm string) {
 	cc.status = StatusRegistered
-	cc.sessionID = sessionID
-	cc.realm = realm
-	cc.sessionTimeout = sessionTimeout
-	cc.Unlock()
+	cc.updateSessionDetails(sessionID, timeout, realm)
 
 	// Start the session timeout timer. If client doesn't send a ping withing
 	// given timeout the connection will be closed.
@@ -155,6 +140,14 @@ func (cc *ControlChannel) AdmitRegistration(sessionID int32, realm string, sessi
 	go cc.subscribe()
 
 	log.Infof("controlchannel registered successful for device '%s'", realm)
+}
+
+func (cc *ControlChannel) updateSessionDetails(id int32, timeout int, realm string) {
+	cc.sessionDetailsMutex.Lock()
+	cc.sessionDetails.id = id
+	cc.sessionDetails.timeout = timeout
+	cc.sessionDetails.realm = realm
+	cc.sessionDetailsMutex.Unlock()
 }
 
 func (cc *ControlChannel) waitForReqistrationOrClose() {
@@ -170,7 +163,6 @@ func (cc *ControlChannel) waitForReqistrationOrClose() {
 		case <-time.After(10 * time.Second): // TODO: get timeout from config
 			log.Warn("controlchannel waitForReqistrationOrClose method timed out and terminates the connection")
 			// Close the session, since it's not registered within time
-			// close(cc.wsCloseCh)
 			cc.target.Stop()
 			return
 		}
@@ -194,14 +186,14 @@ func (f messageHandlerFunc) Handle(msg interface{}) error {
 // function. It expects a handler of interface messageHandler. This method is
 // similar to the go implementation of http.HandleFunc.
 func (cc *ControlChannel) handleMessage(msg interface{}, h messageHandler) error {
-	// We lock the access to control channel object until we handled the
-	// complete message. This ensures that we can safely modify the object and
-	// that the current state isn't touched meanwhile.
-	cc.Lock()
-	cc.lastMessageAt = time.Now().Round(time.Second).UTC()
-	cc.Unlock()
-
+	cc.updateSessionLastMessageAt(time.Now().Round(time.Second).UTC())
 	return h.Handle(msg)
+}
+
+func (cc *ControlChannel) updateSessionLastMessageAt(t time.Time) {
+	cc.sessionDetailsMutex.Lock()
+	cc.sessionDetails.lastMessageAt = time.Now().Round(time.Second).UTC()
+	cc.sessionDetailsMutex.Unlock()
 }
 
 func (cc *ControlChannel) helloHandler() messageHandlerFunc {
@@ -241,7 +233,7 @@ func (cc *ControlChannel) waitForPingOrClose() {
 		case <-cc.stopCh:
 			log.Info("controlchannel waitForPingOrClose method received stop signal")
 			return
-		case <-time.After(time.Duration(cc.sessionTimeout) * time.Second):
+		case <-time.After(time.Duration(cc.getSessionTimeout()) * time.Second):
 			log.Warn("controlchannel waitForPingOrClose method timed out and terminates the connection")
 			// Close the session, since it doesn't reponds within given period
 			// close(cc.wsCloseCh)
@@ -249,6 +241,13 @@ func (cc *ControlChannel) waitForPingOrClose() {
 			return
 		}
 	}
+}
+
+func (cc *ControlChannel) getSessionTimeout() int {
+	cc.sessionDetailsMutex.RLock()
+	t := cc.sessionDetails.timeout
+	cc.sessionDetailsMutex.RUnlock()
+	return t
 }
 
 func (cc *ControlChannel) ensureRegistered(next messageHandler) messageHandler {
@@ -331,50 +330,52 @@ func (cc *ControlChannel) resultHandler() messageHandlerFunc {
 			return cc.sendTerminate()
 		}
 
-		// Get the result chan
-		cc.Lock()
-		defer cc.Unlock()
-
-		resultCh, ok := cc.resultChannels[resultMsg.RequestID]
-		if !ok {
+		resultCh := cc.popCallResultCh(resultMsg.RequestID)
+		if resultCh == nil {
 			// TODO(DGL) should we terminate the control channel here?
-			log.Warn("controlchannel received result message but cannot find a response channel.")
+			log.Warn("controlchannel received error message but cannot find correlated call message.")
 			//return cc.sendAbortMessageAndClose("ERR_PROTOCOL_VIOLATION", err)
 			return cc.sendAbortMessageAndClose("ERR_PROTOCOL_VIOLATION",
 				proto.NewAbortMessageDetails("could not handle result for given request id. time out happend or protocol violation."))
 		}
-		log.Debug("controlchannel write result into channel")
 		resultCh <- resultMsg
-		log.Debug("controlchannel wrote successfully result into channel")
-		delete(cc.resultChannels, resultMsg.RequestID)
 
 		return nil
+		// We do not respond to a result message bectause it's the response
+		// to a call message
 	})
 }
 
 func (cc *ControlChannel) errorHandler() messageHandlerFunc {
 	return messageHandlerFunc(func(msg interface{}) error {
-		/*resultMsg, err := proto.MustResultMessage(msg)
+		errorMsg, err := proto.MustErrorMessage(msg)
 		if err != nil {
-			return cc.terminateAndLogError("result message expected", err)
+			log.Errorf("controlchannel expected a error message but error: %s", err)
+			return cc.sendTerminate()
 		}
 
-		// Get the result chan
-		cc.Lock()
-		resultCh, ok := cc.resultChannels[resultMsg.RequestID]
-		if !ok {
-			// TODO(DGL) should we terminate the control channel here?
-			// log.Error("controlchannel received result but cannot find a response channel. ")
-			return cc.terminateAndLog("received result message but cannot find a response channel.")
+		switch errorMsg.MessageType {
+		case proto.MessageTypeCall:
+			{
+				resultCh := cc.popCallResultCh(errorMsg.RequestID)
+				if resultCh == nil {
+					// TODO(DGL) should we terminate the control channel here?
+					log.Warn("controlchannel received error message but cannot find correlated call or publish message.")
+					//return cc.sendAbortMessageAndClose("ERR_PROTOCOL_VIOLATION", err)
+					return cc.sendAbortMessageAndClose("ERR_PROTOCOL_VIOLATION",
+						proto.NewAbortMessageDetails("could not handle result for given request id. time out happend or protocol violation."))
+				}
+				resultCh <- errorMsg
+			}
+		default:
+			log.Errorf("controlchannel received error message with invalid message type: %d", errorMsg.MessageType)
+			return cc.sendAbortMessageAndClose("ERR_PROTOCOL_VIOLATION",
+				proto.NewAbortMessageDetails("error message contains invalid message type"))
 		}
-		resultCh <- resultMsg
-		delete(cc.resultChannels, resultMsg.RequestID)
-		cc.Unlock()*/
 
-		// TODO(DGL) We can receive errors for call and publish messages. Handle
-		// these errors here.
-		log.Warn("controlchannel received an error message")
 		return nil
+		// We do not respond to a error message bectause it's the response
+		// to a call or publish message
 	})
 }
 
@@ -447,12 +448,7 @@ func (cc *ControlChannel) sendPublishedMessage(requestID, publicationID int32) e
 	return cc.sendMessageAndContinue(out)
 }
 
-func (cc *ControlChannel) sendCallMessage(resultCh chan<- interface{}, operation string, arguments interface{}) error {
-	cc.Lock()
-	requestID := cc.getNextRequestID()
-	cc.resultChannels[requestID] = resultCh
-	cc.Unlock()
-
+func (cc *ControlChannel) sendCallMessage(requestID int32, operation string, arguments interface{}) error {
 	out, err := proto.MarshalNewCallMessage(requestID, operation, arguments)
 	// This error should happen never! If it happens log an urgent error
 	// and terminate the websocket session for safety.
@@ -464,10 +460,6 @@ func (cc *ControlChannel) sendCallMessage(resultCh chan<- interface{}, operation
 	// TODO(DGL) handle full chan buffer
 	return cc.sendMessageAndContinue(out)
 }
-
-/*func (cc *ControlChannel) sendNoMessageAndContinue() error {
-	return cc.sendMessage(FlagContinue, nil)
-}*/
 
 func (cc *ControlChannel) sendMessageAndContinue(data []byte) error {
 	return cc.sendMessage(websocket.FlagContinue, data)
@@ -488,7 +480,32 @@ func (cc *ControlChannel) sendMessage(flag websocket.Flag, data []byte) error {
 }
 
 func (cc *ControlChannel) getNextRequestID() int32 {
+	cc.nextRequestIDMutex.Lock()
 	requestID := cc.nextRequestID
 	cc.nextRequestID++
+	cc.nextRequestIDMutex.Unlock()
 	return requestID
+}
+
+func (cc *ControlChannel) pushCallResultCh(resultCh chan<- interface{}) int32 {
+	requestID := cc.getNextRequestID()
+
+	cc.callResultsMutex.Lock()
+	cc.callResultsMutex.Unlock()
+	cc.callResults[requestID] = resultCh
+
+	return requestID
+}
+
+func (cc *ControlChannel) popCallResultCh(requestID int32) chan<- interface{} {
+	cc.callResultsMutex.Lock()
+	defer cc.callResultsMutex.Unlock()
+
+	resultCh, ok := cc.callResults[requestID]
+	if !ok {
+		return nil
+	}
+
+	delete(cc.callResults, requestID)
+	return resultCh
 }

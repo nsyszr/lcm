@@ -18,7 +18,7 @@ func (cc *ControlChannel) subscribe() error {
 
 	// TODO(DGL) Replace hardcoded namespace and device ID
 	subj := fmt.Sprintf("iotcore.devicecontrol.v1.%s.controlchannel.%s.call", "default", "test")
-	if _, err := cc.nc.Subscribe(subj, func(msg *nats.Msg) {
+	sub, err := cc.nc.Subscribe(subj, func(msg *nats.Msg) {
 		log.Debugf("controlchannel received message from call queue: %s", string(msg.Data))
 
 		// Start handling of reply async ! The method will exit always because
@@ -28,10 +28,12 @@ func (cc *ControlChannel) subscribe() error {
 		/*if err := cc.handleCallRequest(msg); err != nil {
 			log.Error("controlchannel failed to handle call request: ", err.Error())
 		}*/
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 
+	cc.subCall = sub
 	return nil
 }
 
@@ -45,7 +47,9 @@ func (cc *ControlChannel) handleCallRequestOrTimeout(msg *nats.Msg) error {
 	}
 
 	resultCh := make(chan interface{})
-	if err := cc.sendCallMessage(resultCh, req.Command, req.Arguments); err != nil {
+	requestID := cc.pushCallResultCh(resultCh)
+
+	if err := cc.sendCallMessage(requestID, req.Command, req.Arguments); err != nil {
 		return err
 	}
 
@@ -66,43 +70,44 @@ func (cc *ControlChannel) handleCallRequestOrTimeout(msg *nats.Msg) error {
 			// TODO: try to remove resultCh from map. If client sends message
 			// later the result handler will response with an error and quits
 			// the exisiting session.
-			return cc.sendAbortMessageAndClose("ERR_PROTOCOL_VIOLATION",
-				proto.NewAbortMessageDetails("result message timeout"))
+			/* return cc.sendAbortMessageAndClose("ERR_PROTOCOL_VIOLATION",
+			proto.NewAbortMessageDetails("result message timeout"))*/
+			cc.popCallResultCh(requestID)
+			return cc.replyCallFailed(msg, "ERR_RESULT_TIMEOUT", nil)
 		case result := <-resultCh:
 			log.Debug("controlchannel handle call request routine reveived a result")
 			resultMsg, ok := result.(*proto.ResultMessage)
 			if ok {
-				return cc.replyCalledSuccesfully(msg.Reply, resultMsg.Results)
+				return cc.replyCalledSuccesfully(msg, resultMsg.Results)
 			}
 			errorMsg, ok := result.(*proto.ErrorMessage)
 			if ok {
-				return cc.replyCallFailed(msg.Reply, errorMsg.Error, errorMsg.Details)
+				return cc.replyCallFailed(msg, errorMsg.Error, errorMsg.Details)
 			}
-			return cc.replyCallFailed(msg.Reply, "ERR_TECHNICAL_EXCEPTION", nil)
+			return cc.replyCallFailed(msg, "ERR_TECHNICAL_EXCEPTION", nil)
 		}
 	}
 }
 
-func (cc *ControlChannel) replyCallFailed(replyTo, reason string, details interface{}) error {
-	return cc.replyMessage(replyTo, message.ControlChannelCallReply{
+func (cc *ControlChannel) replyCallFailed(msg *nats.Msg, reason string, details interface{}) error {
+	return cc.replyMessage(msg, message.ControlChannelCallReply{
 		Status:       message.ReplyStatusError,
 		ErrorReason:  reason,
 		ErrorDetails: details,
 	})
 }
 
-func (cc *ControlChannel) replyCalledSuccesfully(replyTo string, results interface{}) error {
-	return cc.replyMessage(replyTo, message.ControlChannelCallReply{
+func (cc *ControlChannel) replyCalledSuccesfully(msg *nats.Msg, results interface{}) error {
+	return cc.replyMessage(msg, message.ControlChannelCallReply{
 		Status:  message.ReplyStatusSuccess,
 		Results: results,
 	})
 }
 
-func (cc *ControlChannel) replyMessage(replyTo string, rep interface{}) error {
+func (cc *ControlChannel) replyMessage(msg *nats.Msg, rep interface{}) error {
 	data, err := json.Marshal(rep)
 	if err != nil {
 		return err
 	}
-
-	return cc.nc.Publish(replyTo, data)
+	return msg.Respond(data)
 }

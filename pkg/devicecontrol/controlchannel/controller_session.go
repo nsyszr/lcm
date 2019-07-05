@@ -54,7 +54,7 @@ func (ctrl *Controller) RegisterSession(cc *ControlChannel, realm string) (int32
 	log.Infof("controller added successfully a new control channel session with ID: %d", sess.ID)
 
 	// Tell control channel that the registration is admitted
-	cc.AdmitRegistration(sess.ID, realm, 120)
+	cc.AdmitRegistration(sess.ID, 120, realm)
 
 	// Return the results of the registration to the control channel
 	type registrationDetails struct {
