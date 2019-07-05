@@ -45,6 +45,11 @@ func (ctrl *Controller) RegisterSession(cc *ControlChannel, realm string) (int32
 		return 0, nil, NewTechnicalExceptionError(nil)
 	}
 
+	// TODO(DGL) Fix hardcoded namespace
+	if err := ctrl.publishDeviceStatus("default", sess.DeviceID, "REGISTERED", sess.ID, sess.LastMessageAt); err != nil {
+		log.Error("controller could not publish device status")
+	}
+
 	// Add session to controller
 	// ctrl.Lock()
 	// ctrl.connections[sess.ID] = cc
@@ -75,7 +80,18 @@ func (ctrl *Controller) RegisterSession(cc *ControlChannel, realm string) (int32
 
 // UnregisterSession removes a session from the connection and session list.
 func (ctrl *Controller) UnregisterSession(sessionID int32) {
+	sess, err := ctrl.store.Sessions().FindByID(sessionID)
+	if err != nil {
+		log.Errorf("controller could not find existing session: %s", err.Error())
+	}
+
 	// Do something
 	ctrl.store.Sessions().Delete(sessionID)
+
+	// TODO(DGL) Fix hardcoded namespace
+	if err := ctrl.publishDeviceStatus("default", sess.DeviceID, "UNREGISTERED", sess.ID, sess.LastMessageAt); err != nil {
+		log.Error("controller could not publish device status")
+	}
+
 	log.Infof("controller removed successfully the control channel session with ID: %d", sessionID)
 }
