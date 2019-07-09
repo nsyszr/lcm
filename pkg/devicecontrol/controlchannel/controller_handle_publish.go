@@ -8,10 +8,12 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel/message"
 	"github.com/nsyszr/lcm/pkg/model"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
 func (ctrl *Controller) handlePublishRequest(msg *nats.Msg) error {
+	log.Debug("controller handles publish request")
 	// Extract the namespace
 	// TODO(DGL) Replace hardcoded namespace with namespace from subject
 	namespace := "default"
@@ -20,29 +22,42 @@ func (ctrl *Controller) handlePublishRequest(msg *nats.Msg) error {
 	req := message.PublishRequest{}
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		// TODO(DGL) This error should not happen! But what should we do?
-		return err
+		log.Debugf("controller failed to unmarshal publish request: %v", err)
+		return errors.Wrap(err, "failed to unmarshal publish request")
 	}
 
 	// We received an event which targets the controller. We store this event
 	// in our events storage.
 	if req.TargetType == message.TargetTypeSystem {
 
+		type errorDetails struct {
+			Message string `json:"message"`
+		}
+
 		m, err := ctrl.createEventFromPublishRequest(namespace, req)
-		// TODO(DGL) Add error details to response
-		if err = ctrl.replyPublishFailed(msg.Reply, ErrReasonPublishFailed, nil); err != nil {
-			return err
+		if err != nil {
+			if err := ctrl.replyPublishFailed(msg.Reply, "ERR_TECHNICAL_EXCEPTION", &errorDetails{Message: err.Error()}); err != nil {
+				log.Debugf("controller failed to reply publish request: %v", err)
+				return errors.Wrap(err, "failed to reply publish request")
+			}
 		}
 
 		if err := ctrl.publishCreatedEvent(m); err != nil {
-			log.Errorf("publish event failed: %s", err.Error())
 			// TODO(DGL) Add error details to response
-			if err = ctrl.replyPublishFailed(msg.Reply, ErrReasonPublishFailed, nil); err != nil {
-				return err
+			if err := ctrl.replyPublishFailed(msg.Reply, "ERR_TECHNICAL_EXCEPTION", &errorDetails{Message: err.Error()}); err != nil {
+				log.Debugf("controller failed to reply publish request: %v", err)
+				return errors.Wrap(err, "failed to reply publish request")
 			}
-			return err
+			log.Debugf("controller failed to reply publish request: %v", err)
+			return errors.Wrap(err, "failed to publish created event")
 		}
 
-		return ctrl.replyPublishedSuccessfully(msg.Reply, m.ID)
+		if err := ctrl.replyPublishedSuccessfully(msg.Reply, m.ID); err != nil {
+			log.Debugf("controller failed to reply publish request: %v", err)
+			return errors.Wrap(err, "failed to reply publish request")
+		}
+
+		return nil
 	}
 
 	// TODO(DGL) handle if TargetType == message.TargetTypeDevice
@@ -54,7 +69,7 @@ func (ctrl *Controller) createEventFromPublishRequest(namespace string, req mess
 	// Marshall the given request arguments to a string
 	details, err := json.Marshal(req.Arguments)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to marshal event details")
 	}
 
 	m := &model.Event{
@@ -67,7 +82,7 @@ func (ctrl *Controller) createEventFromPublishRequest(namespace string, req mess
 	}
 
 	if err := ctrl.store.Events().Create(m); err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to store new event")
 	}
 
 	return m, nil
@@ -95,12 +110,12 @@ func (ctrl *Controller) publishCreatedEvent(m *model.Event) error {
 	var details interface{}
 	if err := json.Unmarshal([]byte(m.Details), &details); err != nil {
 		// TODO(DGL) This error should not happen! But what should we do?
-		return err
+		return errors.Wrap(err, "failed to unmarshal event details")
 	}
 
 	srcType, err := message.SourceTypeFromString(m.SourceType)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "invalid event source type")
 	}
 
 	msg := message.EventMessage{
@@ -113,9 +128,13 @@ func (ctrl *Controller) publishCreatedEvent(m *model.Event) error {
 
 	data, err := json.Marshal(msg)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to marshal event message")
 	}
 
 	subj := fmt.Sprintf("iotcore.devicecontrol.v1.%s.events.%s", m.Namespace, m.Topic)
-	return ctrl.nc.Publish(subj, data)
+	if err := ctrl.nc.Publish(subj, data); err != nil {
+		return errors.Wrap(err, "failed to publish event message")
+	}
+
+	return nil
 }

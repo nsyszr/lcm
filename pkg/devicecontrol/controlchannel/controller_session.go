@@ -1,35 +1,41 @@
 package controlchannel
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
+	"github.com/nsyszr/lcm/pkg/devicecontrol/proto"
 	"github.com/nsyszr/lcm/pkg/model"
+	"github.com/nsyszr/lcm/pkg/storage"
 	log "github.com/sirupsen/logrus"
 )
 
 // RegisterSession checks first for existence of realm and on success it's starts a
 // new session, returns the session ID and details that are sent to the client.
 func (ctrl *Controller) RegisterSession(cc *ControlChannel, realm string) (int32, interface{}, error) {
-	if realm != "test@test" {
-		return 0, nil, NewRegistrationError(ErrReasonNoSuchRelam, nil)
+	deviceIDAndURI := strings.SplitN(realm, "@", 2)
+	if len(deviceIDAndURI) != 2 {
+		return 0, nil, proto.NewRegistrationError(proto.ErrReasonNoSuchRelam,
+			fmt.Sprintf("realm '%s' is not valid", realm))
 	}
 
-	deviceIDAndURI := strings.SplitN(realm, "@", 2)
-	log.Infof("deviceIDAndURI=%v", deviceIDAndURI)
-	if len(deviceIDAndURI) != 2 {
-		return 0, nil, NewRegistrationError(ErrReasonNoSuchRelam, nil)
+	if realm != "test@test" {
+		return 0, nil, proto.NewRegistrationError(proto.ErrReasonNoSuchRelam,
+			fmt.Sprintf("realm '%s' is not registered", realm))
 	}
 
 	// Check if session exists
 	// TODO(DGL) Fix hardcoded namespace
 	_, err := ctrl.store.Sessions().FindByNamespaceAndDeviceID("default", deviceIDAndURI[0])
-	if err != nil && err.Error() != "not found" {
-		return 0, nil, NewTechnicalExceptionError(nil)
+	if err != nil && err != storage.ErrNotFound {
+		log.Errorf("controller failed to search for existing session: %v", err)
+		return 0, nil, proto.NewTechnicalExceptionError(err.Error())
 	}
 	if err == nil {
 		log.Warnf("controller rejected the control channel becuase session for '%s' exists already", deviceIDAndURI[0])
-		return 0, nil, NewRegistrationError("ERR_SESSION_EXISTS", nil)
+		return 0, nil, proto.NewRegistrationError(proto.ErrReasonSessionExists,
+			fmt.Sprintf("a session for '%s' exists already", realm))
 	}
 
 	// Create a new session in the store
@@ -42,12 +48,13 @@ func (ctrl *Controller) RegisterSession(cc *ControlChannel, realm string) (int32
 		Timeout:       120,
 	}
 	if err := ctrl.store.Sessions().Create(&sess); err != nil {
-		return 0, nil, NewTechnicalExceptionError(nil)
+		log.Errorf("controller failed to create new session: %v", err)
+		return 0, nil, proto.NewTechnicalExceptionError(err.Error())
 	}
 
 	// TODO(DGL) Fix hardcoded namespace
-	if err := ctrl.publishDeviceStatus("default", sess.DeviceID, "REGISTERED", sess.ID, sess.LastMessageAt); err != nil {
-		log.Error("controller could not publish device status")
+	if err := ctrl.publishDeviceStatus("default", sess.DeviceID, "CONNECTED", sess.ID, sess.LastMessageAt); err != nil {
+		log.Errorf("controller could not publish device status: %v", err)
 	}
 
 	// Add session to controller
@@ -82,15 +89,17 @@ func (ctrl *Controller) RegisterSession(cc *ControlChannel, realm string) (int32
 func (ctrl *Controller) UnregisterSession(sessionID int32) {
 	sess, err := ctrl.store.Sessions().FindByID(sessionID)
 	if err != nil {
-		log.Errorf("controller could not find existing session: %s", err.Error())
+		log.Errorf("controller could not find existing session: %v", err)
+		return // No session found we leave
 	}
 
-	// Do something
-	ctrl.store.Sessions().Delete(sessionID)
+	if err := ctrl.store.Sessions().Delete(sessionID); err != nil {
+		log.Errorf("controller failed to delete session from store: %v", err)
+	}
 
 	// TODO(DGL) Fix hardcoded namespace
-	if err := ctrl.publishDeviceStatus("default", sess.DeviceID, "UNREGISTERED", sess.ID, sess.LastMessageAt); err != nil {
-		log.Error("controller could not publish device status")
+	if err := ctrl.publishDeviceStatus("default", sess.DeviceID, "DISCONNECTED", sess.ID, sess.LastMessageAt); err != nil {
+		log.Errorf("controller could not publish device status: %v", err)
 	}
 
 	log.Infof("controller removed successfully the control channel session with ID: %d", sessionID)

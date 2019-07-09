@@ -11,24 +11,25 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
 	nats "github.com/nats-io/nats.go"
 	"github.com/nsyszr/lcm/pkg/devicecontrol"
 	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel"
-	"github.com/nsyszr/lcm/pkg/storage/memory"
+	"github.com/nsyszr/lcm/pkg/storage/postgres"
 	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
 type deviceControlServer struct {
+	db     *sqlx.DB
+	nc     *nats.Conn
 	quitCh chan bool
 	doneCh chan bool
-
-	nc    *nats.Conn
-	errCh chan error
-	wg    sync.WaitGroup
+	errCh  chan error
+	wg     sync.WaitGroup
 }
 
 func init() {
@@ -49,13 +50,18 @@ func init() {
 }
 
 func newDeviceControlServer() (*deviceControlServer, error) {
+	db, err := initDB()
+	if err != nil {
+		return nil, err
+	}
+
 	s := &deviceControlServer{
 		// mgr:     memory.NewMemoryManager(),
+		db:     db,
 		quitCh: make(chan bool),
 		doneCh: make(chan bool),
-
-		errCh: make(chan error, 1),
-		wg:    sync.WaitGroup{},
+		errCh:  make(chan error, 1),
+		wg:     sync.WaitGroup{},
 	}
 
 	nc, err := nats.Connect(nats.DefaultURL,
@@ -86,6 +92,24 @@ func newDeviceControlServer() (*deviceControlServer, error) {
 	return s, nil
 }
 
+func initDB( /*c *config.Config*/ ) (db *sqlx.DB, err error) {
+	// Connect to PostgreSQL database
+	// TODO(DGL) remove hardcoded database URL
+	db, err = sqlx.Open("postgres", "postgres://u4barkeeperdev:pw4barkeeperdev@localhost:5432/barkeeperdev?sslmode=disable")
+	if err != nil {
+		log.Error("Failed to connect database: ", err)
+		return
+	}
+
+	// Check the database connection
+	if err = db.Ping(); err != nil {
+		log.Error("Failed to connect database: ", err)
+		return
+	}
+
+	return
+}
+
 func (s *deviceControlServer) Serve() {
 	e := echo.New()
 	e.HideBanner = true
@@ -96,7 +120,7 @@ func (s *deviceControlServer) Serve() {
 	// e.HTTPErrorHandler = errorx.JSONErrorHandler
 
 	// Create the controller
-	ctrl := controlchannel.NewController(s.nc, memory.NewStore())
+	ctrl := controlchannel.NewController(s.nc, postgres.NewStore(s.db))
 	ctrl.Subscribe()
 
 	// Register API endpoints

@@ -7,6 +7,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel/message"
+	"github.com/pkg/errors"
 )
 
 func (ctrl *Controller) handleCallRequest(msg *nats.Msg) error {
@@ -18,12 +19,13 @@ func (ctrl *Controller) handleCallRequest(msg *nats.Msg) error {
 	req := message.CallRequest{}
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		// TODO(DGL) This error should not happen! But what should we do?
-		return err
+		return errors.Wrap(err, "failed to unmarshal call request")
 	}
 
 	if req.TargetType == message.TargetTypeDevice {
 		if req.TargetID == "" {
-			// Reply ErrUnknownTarget
+			// TODO(DGL) Add details for the bad request
+			return ctrl.replyCallFailed(msg.Reply, "ERR_BAD_REQUEST", nil)
 		}
 
 		// Find a device session for device ID equals target ID
@@ -41,20 +43,20 @@ func (ctrl *Controller) handleCallRequest(msg *nats.Msg) error {
 		callRequestData, err := json.Marshal(callRequest)
 		if err != nil {
 			// TODO(DGL) Add details to error reply
-			return ctrl.replyCallFailed(msg.Reply, ErrReasonTechnicalException, nil)
+			return ctrl.replyCallFailed(msg.Reply, "ERR_TECHNICAL_EXCEPTION", nil)
 		}
 
 		subj := fmt.Sprintf("iotcore.devicecontrol.v1.%s.controlchannel.%s.call", namespace, req.TargetID)
 		callReplyMsg, err := ctrl.nc.Request(subj, callRequestData, 16*time.Second)
 		if err != nil {
 			// TODO(DGL) Add details to error reply
-			return ctrl.replyCallFailed(msg.Reply, ErrReasonTechnicalException, nil)
+			return ctrl.replyCallFailed(msg.Reply, "ERR_TECHNICAL_EXCEPTION", nil)
 		}
 
 		callReply := message.ControlChannelCallReply{}
 		if err := json.Unmarshal(callReplyMsg.Data, &callReply); err != nil {
 			// TODO(DGL) Add details to error reply
-			return ctrl.replyCallFailed(msg.Reply, ErrReasonTechnicalException, nil)
+			return ctrl.replyCallFailed(msg.Reply, "ERR_TECHNICAL_EXCEPTION", nil)
 		}
 
 		if callReply.Status == message.ReplyStatusError {

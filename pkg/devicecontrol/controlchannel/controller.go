@@ -7,6 +7,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel/websocket"
 	"github.com/nsyszr/lcm/pkg/storage"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -84,8 +85,12 @@ func (ctrl *Controller) NewControlChannel(driver *websocket.WebSocketDriver /*co
 func (ctrl *Controller) replyMessage(replyTo string, rep interface{}) error {
 	data, err := json.Marshal(rep)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to marshal reply message")
 	}
 
-	return ctrl.nc.Publish(replyTo, data)
+	if err := ctrl.nc.Publish(replyTo, data); err != nil {
+		return errors.Wrap(err, "failed to publish message")
+	}
+
+	return nil
 }

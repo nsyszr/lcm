@@ -8,11 +8,13 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel/message"
 	"github.com/nsyszr/lcm/pkg/devicecontrol/proto"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
 func (cc *ControlChannel) subscribe() error {
 	if cc.nc == nil {
+		// TODO(DGL) Create a true error
 		return fmt.Errorf("controlchannel: connection to nats is missing")
 	}
 
@@ -30,10 +32,11 @@ func (cc *ControlChannel) subscribe() error {
 		}*/
 	})
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to subscribe the controlchannel call queue")
 	}
 
 	cc.subCall = sub
+
 	return nil
 }
 
@@ -43,14 +46,14 @@ func (cc *ControlChannel) handleCallRequestOrTimeout(msg *nats.Msg) error {
 	req := message.ControlChannelCallRequest{}
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		// TODO(DGL) This error should not happen! But what should we do?
-		return err
+		return errors.Wrap(err, "failed to unmarshal controlchannel call request")
 	}
 
 	resultCh := make(chan interface{})
 	requestID := cc.pushCallResultCh(resultCh)
 
 	if err := cc.sendCallMessage(requestID, req.Command, req.Arguments); err != nil {
-		return err
+		return errors.Wrap(err, "failed to send call message")
 	}
 
 	for {
@@ -107,7 +110,10 @@ func (cc *ControlChannel) replyCalledSuccesfully(msg *nats.Msg, results interfac
 func (cc *ControlChannel) replyMessage(msg *nats.Msg, rep interface{}) error {
 	data, err := json.Marshal(rep)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to marshal reply message")
 	}
-	return msg.Respond(data)
+	if err := msg.Respond(data); err != nil {
+		return errors.Wrap(err, "failed to respond the request message")
+	}
+	return nil
 }

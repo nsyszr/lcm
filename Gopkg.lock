@@ -44,6 +44,12 @@
   version = "v1.0"
 
 [[projects]]
+  name = "github.com/jmoiron/sqlx"
+  packages = [".","reflectx"]
+  revision = "d161d7a76b5661016ad0b085869f77fd410f3e6a"
+  version = "v1.2.0"
+
+[[projects]]
   name = "github.com/konsorten/go-windows-terminal-sequences"
   packages = ["."]
   revision = "f55edac94c9bbba5d6182a4be46d86a2c9b5b50e"
@@ -60,6 +66,12 @@
   packages = ["bytes","color","log","random"]
   revision = "7fd9f68ece0bcb1a905fac8f1549f0083f71c51b"
   version = "v0.2.8"
+
+[[projects]]
+  name = "github.com/lib/pq"
+  packages = [".","oid","scram"]
+  revision = "bc6a3c0594130b1e34005880bc600b6d3f49fa7f"
+  version = "v1.1.1"
 
 [[projects]]
   name = "github.com/magiconair/properties"
@@ -108,6 +120,12 @@
   packages = ["."]
   revision = "728039f679cbcd4f6a54e080d2219a4c4928c546"
   version = "v1.4.0"
+
+[[projects]]
+  name = "github.com/pkg/errors"
+  packages = ["."]
+  revision = "ba968bfe8b2f7e042a574c888954fccecfa385b4"
+  version = "v0.8.1"
 
 [[projects]]
   name = "github.com/sirupsen/logrus"
@@ -196,6 +214,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "255a2c759e3dcbe403b6bf3d13a24ce9fcc44001ff3d2b4f128f384f83c0019d"
+  inputs-digest = "d5061c5f6b1f8205e63c38b7e4893bf2cae8e2eb957a1ef80ff2dc90a37bd6a1"
   solver-name = "gps-cdcl"
   solver-version = 1

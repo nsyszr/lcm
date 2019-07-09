@@ -1,6 +1,9 @@
 package main
 
-import "github.com/nsyszr/lcm/cmd"
+import (
+	_ "github.com/lib/pq"
+	"github.com/nsyszr/lcm/cmd"
+)
 
 func main() {
 	cmd.Execute()

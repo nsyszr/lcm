@@ -80,7 +80,7 @@ func (cc *ControlChannel) inboxHandler() {
 		select {
 		case msg := <-cc.target.Inbox:
 			{
-				log.Infof("controlchannel reveived message: '%s'", string(msg.Data))
+				log.Debugf("controlchannel reveived message: '%s'", string(msg.Data))
 
 				// Unmarshal the message to get the message type for further processing.
 				msgType, msg, err := proto.UnmarshalMessage(msg.Data)
@@ -113,11 +113,12 @@ func (cc *ControlChannel) inboxHandler() {
 				}
 
 				if unhandled {
-					log.Warnf("controlchannel cannot handle message")
+					log.Warnf("controlchannel cannot handle message of type: %s", msgType.String())
 					// TODO(DGL) Add error details and check what happens if this
 					// method retuns an error. Should we terminate for safety???
-					cc.sendAbortMessageAndClose("ERR_PROTOCOL_VIOLATION", nil)
-					return
+					cc.sendAbortMessageAndClose(proto.ErrReasonProtocolViolation,
+						fmt.Sprintf("cannot handle message of type '%s'", msgType.String()))
+					return // We stop handling new inbox messages
 				}
 			}
 		}
@@ -139,7 +140,7 @@ func (cc *ControlChannel) AdmitRegistration(sessionID int32, timeout int, realm 
 	// Listen for call requests
 	go cc.subscribe()
 
-	log.Infof("controlchannel registered successful for device '%s'", realm)
+	log.Infof("controlchannel registered for device '%s'", realm)
 }
 
 func (cc *ControlChannel) updateSessionDetails(id int32, timeout int, realm string) {
@@ -151,19 +152,18 @@ func (cc *ControlChannel) updateSessionDetails(id int32, timeout int, realm stri
 }
 
 func (cc *ControlChannel) waitForReqistrationOrClose() {
-	log.Info("controlchannel waitForReqistrationOrClose method started")
+	log.Debug("controlchannel wait for reqistration routine started")
 	for {
 		select {
 		case <-cc.registeredCh:
-			log.Info("controlchannel waitForReqistrationOrClose method successfully received registration signal")
+			log.Debug("controlchannel wait for reqistration routine received registration signal")
 			return
 		case <-cc.stopCh:
-			log.Info("controlchannel waitForReqistrationOrClose method received stop signal")
+			log.Debug("controlchannel wait for reqistration routine received stop signal")
 			return
 		case <-time.After(10 * time.Second): // TODO: get timeout from config
-			log.Warn("controlchannel waitForReqistrationOrClose method timed out and terminates the connection")
-			// Close the session, since it's not registered within time
-			cc.target.Stop()
+			log.Warn("controlchannel wait for reqistration routine time out")
+			cc.target.Stop() // Stop the client connection
 			return
 		}
 	}
@@ -210,12 +210,14 @@ func (cc *ControlChannel) helloHandler() messageHandlerFunc {
 		cc.registeredCh <- true
 
 		sessID, details, err := cc.ctrl.RegisterSession(cc, helloMsg.Realm)
-		if err != nil && IsRegistrationError(err) {
-			log.Warnf("controlchannel rejected for device '%s'", helloMsg.Realm)
-			e := err.(*RegistrationError)
-			return cc.sendAbortMessageAndClose(e.Reason, e.Details)
+		if err != nil && proto.IsRegistrationError(err) {
+			e := err.(*proto.RegistrationError)
+			log.Warnf("controlchannel registration rejected for device '%s' with reason: %s",
+				helloMsg.Realm, e.Reason.String())
+			return cc.sendAbortMessageAndClose(e.Reason, e.Message)
 		} else if err != nil {
-			log.Errorf("controlchannel registration failed: %s", err.Error())
+			log.Errorf("controlchannel registration failed for device '%s' with error: %s",
+				helloMsg.Realm, err.Error())
 			return cc.sendTerminate()
 		}
 
@@ -224,20 +226,18 @@ func (cc *ControlChannel) helloHandler() messageHandlerFunc {
 }
 
 func (cc *ControlChannel) waitForPingOrClose() {
-	log.Info("controlchannel waitForPingOrClose method started")
+	log.Debug("controlchannel wait for ping routine started")
 	for {
 		select {
 		case <-cc.pingCh:
-			log.Info("controlchannel waitForPingOrClose method successfully received ping signal")
+			log.Debug("controlchannel wait for ping routine received ping signal")
 			// We do not exit the loop because we reset the timeout only
 		case <-cc.stopCh:
-			log.Info("controlchannel waitForPingOrClose method received stop signal")
+			log.Debug("controlchannel wait for ping routine received stop signal")
 			return
 		case <-time.After(time.Duration(cc.getSessionTimeout()) * time.Second):
-			log.Warn("controlchannel waitForPingOrClose method timed out and terminates the connection")
-			// Close the session, since it doesn't reponds within given period
-			// close(cc.wsCloseCh)
-			cc.target.Stop()
+			log.Warn("controlchannel wait for ping routine time out")
+			cc.target.Stop() // Stop the client connection
 			return
 		}
 	}
@@ -253,8 +253,8 @@ func (cc *ControlChannel) getSessionTimeout() int {
 func (cc *ControlChannel) ensureRegistered(next messageHandler) messageHandler {
 	return messageHandlerFunc(func(msg interface{}) error {
 		if cc.status != StatusRegistered {
-			// TOOD(DGL) Add error details
-			return cc.sendAbortMessageAndClose("ERR_INVALID_SESSION", nil)
+			return cc.sendAbortMessageAndClose(proto.ErrReasonInvalidSession,
+				"session not registered")
 		}
 		return next.Handle(msg)
 	})
@@ -262,7 +262,7 @@ func (cc *ControlChannel) ensureRegistered(next messageHandler) messageHandler {
 
 func (cc *ControlChannel) abortHandler() messageHandlerFunc {
 	return messageHandlerFunc(func(msg interface{}) error {
-		log.Debug("controlchannel terminates the session because of client abort message")
+		log.Warn("controlchannel terminates the session because of client abort message")
 		return cc.sendTerminate()
 	})
 }
@@ -315,6 +315,7 @@ func (cc *ControlChannel) eventHandler() messageHandlerFunc {
 		}
 
 		if rep.Status == message.ReplyStatusError {
+			// TODO(DGL) Convert to ErrorReason type
 			return cc.sendErrorMessage(proto.MessageTypePublish, publishMsg.RequestID, rep.ErrorReason, rep.ErrorDetails)
 		}
 
@@ -334,9 +335,8 @@ func (cc *ControlChannel) resultHandler() messageHandlerFunc {
 		if resultCh == nil {
 			// TODO(DGL) should we terminate the control channel here?
 			log.Warn("controlchannel received error message but cannot find correlated call message.")
-			//return cc.sendAbortMessageAndClose("ERR_PROTOCOL_VIOLATION", err)
-			return cc.sendAbortMessageAndClose("ERR_PROTOCOL_VIOLATION",
-				proto.NewAbortMessageDetails("could not handle result for given request id. time out happend or protocol violation."))
+			return cc.sendAbortMessageAndClose(proto.ErrReasonProtocolViolation,
+				"Could not handle result for given request id. Time out happend or protocol violation.")
 		}
 		resultCh <- resultMsg
 
@@ -361,16 +361,15 @@ func (cc *ControlChannel) errorHandler() messageHandlerFunc {
 				if resultCh == nil {
 					// TODO(DGL) should we terminate the control channel here?
 					log.Warn("controlchannel received error message but cannot find correlated call or publish message.")
-					//return cc.sendAbortMessageAndClose("ERR_PROTOCOL_VIOLATION", err)
-					return cc.sendAbortMessageAndClose("ERR_PROTOCOL_VIOLATION",
-						proto.NewAbortMessageDetails("could not handle result for given request id. time out happend or protocol violation."))
+					return cc.sendAbortMessageAndClose(proto.ErrReasonProtocolViolation,
+						"Could not handle result for given request id. Time out happend or protocol violation.")
 				}
 				resultCh <- errorMsg
 			}
 		default:
 			log.Errorf("controlchannel received error message with invalid message type: %d", errorMsg.MessageType)
-			return cc.sendAbortMessageAndClose("ERR_PROTOCOL_VIOLATION",
-				proto.NewAbortMessageDetails("error message contains invalid message type"))
+			return cc.sendAbortMessageAndClose(proto.ErrReasonProtocolViolation,
+				"error message contains invalid message type")
 		}
 
 		return nil
@@ -383,13 +382,9 @@ func (cc *ControlChannel) sendTerminate() error {
 	return cc.sendMessage(websocket.FlagTerminate, nil)
 }
 
-/*func (cc *ControlChannel) sendTterminateAndLogError(message string, err error) ([]byte, Flag, error) {
-	log.Errorf("controlchannel terminates with message and error: %s: %s", message, err.Error())
-	cc.pushBackMessage(FlagTerminate, nil)
-}*/
-
-func (cc *ControlChannel) sendAbortMessageAndClose(reason string, details interface{}) error {
-	out, err := proto.MarshalNewAbortMessage(reason, details)
+func (cc *ControlChannel) sendAbortMessageAndClose(reason proto.ErrorReason, message string) error {
+	out, err := proto.MarshalNewAbortMessage(reason.String(),
+		proto.NewAbortMessageDetails(message))
 	// This error should happen never! If it happens log an urgent error
 	// and terminate the websocket session for safety.
 	if err != nil {

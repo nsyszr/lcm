@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel/message"
+	"github.com/pkg/errors"
 )
 
 type deviceStatusDetails struct {
@@ -28,9 +29,13 @@ func (ctrl *Controller) publishDeviceStatus(namespace, deviceID, status string, 
 
 	data, err := json.Marshal(msg)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to marshal event message")
 	}
 
 	subj := fmt.Sprintf("iotcore.devicecontrol.v1.%s.events.devicestatus", namespace)
-	return ctrl.nc.Publish(subj, data)
+	if err := ctrl.nc.Publish(subj, data); err != nil {
+		return errors.Wrap(err, "failed to publish event message")
+	}
+
+	return nil
 }
