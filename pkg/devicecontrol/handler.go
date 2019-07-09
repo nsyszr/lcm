@@ -4,7 +4,7 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/labstack/echo"
 	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel"
-	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel/websocket"
+	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel/wsio"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -36,14 +36,16 @@ func (h *Handler) controlChannelHandler() echo.HandlerFunc {
 		defer conn.Close()
 
 		terminateCh := make(chan struct{})
-		driver := websocket.NewWebSocketDriver(conn, terminateCh)
-		driver.Start()
+		stopDriverCh := make(chan struct{})
+		driver := wsio.NewDriver(conn, terminateCh)
+		driver.Start(stopDriverCh)
 		defer driver.Close()
 
 		cc := h.ctrl.NewControlChannel(driver)
 		defer cc.Close()
 
 		<-terminateCh
+		close(stopDriverCh)
 
 		log.Debug("handler exit control channel handler func")
 		return nil

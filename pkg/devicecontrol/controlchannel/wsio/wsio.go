@@ -1,4 +1,4 @@
-package websocket
+package wsio
 
 import (
 	"io/ioutil"
@@ -27,7 +27,7 @@ type InboxMessage struct {
 	Data []byte
 }
 
-type WebSocketDriver struct {
+type Driver struct {
 	conn   net.Conn
 	Inbox  chan *InboxMessage
 	Outbox chan *OutboxMessage
@@ -36,60 +36,54 @@ type WebSocketDriver struct {
 	terminateCh    chan<- struct{}
 	terminatedOnce sync.Once
 
-	stopCh   chan struct{}
-	stopOnce sync.Once
+	stopCh <-chan struct{}
+	// stopOnce sync.Once
 
 	wg sync.WaitGroup
 }
 
-func NewWebSocketDriver(conn net.Conn, terminateCh chan<- struct{}) *WebSocketDriver {
-	return &WebSocketDriver{
+func NewDriver(conn net.Conn, terminateCh chan<- struct{}) *Driver {
+	return &Driver{
 		conn:        conn,
 		Inbox:       make(chan *InboxMessage, 100),
 		Outbox:      make(chan *OutboxMessage, 100),
 		terminateCh: terminateCh,
-		stopCh:      make(chan struct{}),
+		// stopCh:      make(chan struct{}),
 	}
 }
 
-func (driver *WebSocketDriver) Start( /*stopCh <-chan struct{}*/ ) {
+func (driver *Driver) Start(stopCh <-chan struct{}) {
+	driver.stopCh = stopCh
 	driver.wg.Add(1)
 	go driver.inboxHandler()
 	driver.wg.Add(1)
 	go driver.outboxHandler()
 }
 
-func (driver *WebSocketDriver) Close() {
+func (driver *Driver) Close() {
 	// log.Debug("websocketdriver enter close")
 	driver.wg.Wait()
 	log.Debug("websocketdriver closed")
 }
 
-func (driver *WebSocketDriver) Stop() {
+func (driver *Driver) Stop() {
 	log.Debug("websocketdriver stop called")
 	driver.safeCloseTerminateChannel()
 }
 
-func (driver *WebSocketDriver) closeHandler() {
+func (driver *Driver) closeHandler() {
 	log.Debug("websocketdriver closeHandler called")
 	defer driver.wg.Done()
 	driver.safeCloseTerminateChannel()
-	driver.safeCloseStopChannel()
 }
 
-func (driver *WebSocketDriver) safeCloseTerminateChannel() {
+func (driver *Driver) safeCloseTerminateChannel() {
 	driver.terminatedOnce.Do(func() {
 		close(driver.terminateCh)
 	})
 }
 
-func (driver *WebSocketDriver) safeCloseStopChannel() {
-	driver.stopOnce.Do(func() {
-		close(driver.stopCh)
-	})
-}
-
-func (driver *WebSocketDriver) inboxHandler() {
+func (driver *Driver) inboxHandler() {
 	defer driver.closeHandler()
 	// defer safeClose(driver.terminateCh) // On exit handler terminate the websocket (see http control channel handler)
 
@@ -162,7 +156,7 @@ func (driver *WebSocketDriver) inboxHandler() {
 	}
 }
 
-func (driver *WebSocketDriver) outboxHandler() {
+func (driver *Driver) outboxHandler() {
 	defer driver.closeHandler()
 	// defer safeClose(driver.terminateCh) // On exit handler terminate the websocket (see http control channel handler)
 
@@ -195,13 +189,11 @@ func (driver *WebSocketDriver) outboxHandler() {
 				}
 			}
 		case <-driver.stopCh:
-			return
-			/*case <-closeGracefulCh:
 			{
-				log.Info("websocket received a close graceful signal")
-				webSocketCloseGraceful(conn, w, state)
-				return // stop reading outbox because the websocket is closed
-			}*/
+				log.Info("websocket received stop signal")
+				webSocketCloseGraceful(driver.conn, w, state)
+				return
+			}
 		}
 	}
 }

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/nats-io/nats.go"
-	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel/websocket"
+	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel/wsio"
 	"github.com/nsyszr/lcm/pkg/storage"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -50,22 +50,20 @@ func (ctrl *Controller) Subscribe() error {
 }
 
 // NewControlChannel creates a control channel handler
-func (ctrl *Controller) NewControlChannel(driver *websocket.WebSocketDriver /*conn net.Conn, terminateCh chan<- struct{}*/) *ControlChannel {
+func (ctrl *Controller) NewControlChannel(driver *wsio.Driver /*conn net.Conn, terminateCh chan<- struct{}*/) *ControlChannel {
 	cc := &ControlChannel{
 		ctrl: ctrl,
 		nc:   ctrl.nc,
-		// conn:         conn,
+
 		status:         StatusEstablished,
 		sessionDetails: &sessionDetails{},
 
 		stopCh:       make(chan bool),
 		registeredCh: make(chan bool),
 		pingCh:       make(chan bool),
-		// wsTerminateCh: terminateCh,
-		// wsCloseCh:     make(chan struct{}),
-		target: driver, /*websocket.NewWebSocketDriver(conn, terminateCh),*/
-		// wsOutboxCh:     make(chan *OutboxMessage, 100),
-		// inboxCh:        make(chan *InboxMessage, 100),
+
+		target: driver,
+
 		nextRequestID: 1,
 		callResults:   make(map[int32]chan<- interface{}),
 	}

@@ -8,7 +8,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel/message"
-	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel/websocket"
+	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel/wsio"
 	"github.com/nsyszr/lcm/pkg/devicecontrol/proto"
 	log "github.com/sirupsen/logrus"
 )
@@ -45,7 +45,7 @@ type ControlChannel struct {
 	// sessionTimeout int
 	// wsTerminateCh  chan<- struct{}
 	// wsCloseCh      chan struct{}
-	target *websocket.WebSocketDriver
+	target *wsio.Driver
 	// wsOutboxCh     chan *OutboxMessage
 	// inboxCh        chan *InboxMessage
 
@@ -379,7 +379,7 @@ func (cc *ControlChannel) errorHandler() messageHandlerFunc {
 }
 
 func (cc *ControlChannel) sendTerminate() error {
-	return cc.sendMessage(websocket.FlagTerminate, nil)
+	return cc.sendMessage(wsio.FlagTerminate, nil)
 }
 
 func (cc *ControlChannel) sendAbortMessageAndClose(reason proto.ErrorReason, message string) error {
@@ -457,16 +457,16 @@ func (cc *ControlChannel) sendCallMessage(requestID int32, operation string, arg
 }
 
 func (cc *ControlChannel) sendMessageAndContinue(data []byte) error {
-	return cc.sendMessage(websocket.FlagContinue, data)
+	return cc.sendMessage(wsio.FlagContinue, data)
 }
 
 func (cc *ControlChannel) sendMessageAndCloseGraceful(data []byte) error {
-	return cc.sendMessage(websocket.FlagCloseGracefully, data)
+	return cc.sendMessage(wsio.FlagCloseGracefully, data)
 }
 
-func (cc *ControlChannel) sendMessage(flag websocket.Flag, data []byte) error {
+func (cc *ControlChannel) sendMessage(flag wsio.Flag, data []byte) error {
 	select {
-	case cc.target.Outbox <- websocket.NewOutboxMessage(flag, data):
+	case cc.target.Outbox <- wsio.NewOutboxMessage(flag, data):
 		return nil
 	default:
 		// TODO(DGL) Define better errors

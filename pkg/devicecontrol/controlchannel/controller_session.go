@@ -27,15 +27,24 @@ func (ctrl *Controller) RegisterSession(cc *ControlChannel, realm string) (int32
 
 	// Check if session exists
 	// TODO(DGL) Fix hardcoded namespace
-	_, err := ctrl.store.Sessions().FindByNamespaceAndDeviceID("default", deviceIDAndURI[0])
+	existingSess, err := ctrl.store.Sessions().FindByNamespaceAndDeviceID("default", deviceIDAndURI[0])
 	if err != nil && err != storage.ErrNotFound {
 		log.Errorf("controller failed to search for existing session: %v", err)
 		return 0, nil, proto.NewTechnicalExceptionError(err.Error())
 	}
+
+	// We found an existing entry, let's check the timeout
 	if err == nil {
-		log.Warnf("controller rejected the control channel becuase session for '%s' exists already", deviceIDAndURI[0])
-		return 0, nil, proto.NewRegistrationError(proto.ErrReasonSessionExists,
-			fmt.Sprintf("a session for '%s' exists already", realm))
+		if existingSess.LastMessageAt.Add(time.Duration(existingSess.Timeout) * time.Second).After(time.Now()) {
+			log.Warnf("controller rejected the control channel becuase session for '%s' exists already", deviceIDAndURI[0])
+			return 0, nil, proto.NewRegistrationError(proto.ErrReasonSessionExists,
+				fmt.Sprintf("a session for '%s' exists already", realm))
+		}
+
+		if err := ctrl.store.Sessions().Delete(existingSess.ID); err != nil {
+			log.Errorf("controller failed to delete for expired session: %v", err)
+			return 0, nil, proto.NewTechnicalExceptionError(err.Error())
+		}
 	}
 
 	// Create a new session in the store
