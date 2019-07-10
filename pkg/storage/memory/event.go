@@ -1,11 +1,11 @@
 package memory
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/nsyszr/lcm/pkg/model"
+	"github.com/nsyszr/lcm/pkg/storage"
 )
 
 type eventStore struct {
@@ -40,7 +40,7 @@ func (s *eventStore) FindByID(id int32) (*model.Event, error) {
 		return &m, nil
 	}
 
-	return nil, fmt.Errorf("not found")
+	return nil, storage.ErrNotFound
 }
 
 func (s *eventStore) Create(m *model.Event) error {

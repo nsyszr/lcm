@@ -21,8 +21,8 @@ var (
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
-	Use:   "ngvpn",
-	Short: "NGVPN",
+	Use:   "barkeeper",
+	Short: "Project Barkeeper (Device Control)",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println(cmd.UsageString())
 		os.Exit(2)

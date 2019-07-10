@@ -20,9 +20,15 @@ func (ctrl *Controller) RegisterSession(cc *ControlChannel, realm string) (int32
 			fmt.Sprintf("realm '%s' is not valid", realm))
 	}
 
-	if realm != "test@test" {
+	// Find the device
+	// TODO(DGL) Fix hardcoded namespace
+	device, err := ctrl.store.Devices().FindByNamespaceAndDeviceID("default", deviceIDAndURI[0])
+	if err != nil && err == storage.ErrNotFound {
 		return 0, nil, proto.NewRegistrationError(proto.ErrReasonNoSuchRelam,
 			fmt.Sprintf("realm '%s' is not registered", realm))
+	} else if err != nil {
+		log.Errorf("controller failed to find device: %v", err)
+		return 0, nil, proto.NewTechnicalExceptionError(err.Error())
 	}
 
 	// Check if session exists
@@ -51,10 +57,10 @@ func (ctrl *Controller) RegisterSession(cc *ControlChannel, realm string) (int32
 	// TODO(DGL) Fix hardcoded namespace
 	sess := model.Session{
 		Namespace:     "default",
-		DeviceID:      deviceIDAndURI[0],
-		DeviceURI:     deviceIDAndURI[1],
+		DeviceID:      device.DeviceID,
+		DeviceURI:     device.DeviceURI,
 		LastMessageAt: time.Now().Round(time.Second).UTC(),
-		Timeout:       120,
+		Timeout:       device.SessionTimeout,
 	}
 	if err := ctrl.store.Sessions().Create(&sess); err != nil {
 		log.Errorf("controller failed to create new session: %v", err)
@@ -66,16 +72,10 @@ func (ctrl *Controller) RegisterSession(cc *ControlChannel, realm string) (int32
 		log.Errorf("controller could not publish device status: %v", err)
 	}
 
-	// Add session to controller
-	// ctrl.Lock()
-	// ctrl.connections[sess.ID] = cc
-	// ctrl.sessions[realm] = newSession(false, m.ID)
-	// ctrl.Unlock()
-
 	log.Infof("controller added successfully a new control channel session with ID: %d", sess.ID)
 
 	// Tell control channel that the registration is admitted
-	cc.AdmitRegistration(sess.ID, 120, realm)
+	cc.AdmitRegistration(sess.ID, device.SessionTimeout, realm)
 
 	// Return the results of the registration to the control channel
 	type registrationDetails struct {
@@ -86,10 +86,10 @@ func (ctrl *Controller) RegisterSession(cc *ControlChannel, realm string) (int32
 	}
 
 	details := &registrationDetails{
-		SessionTimeout: 20,
-		PingInterval:   16,
-		PongTimeout:    4,
-		EventsTopic:    "device",
+		SessionTimeout: device.SessionTimeout,
+		PingInterval:   device.PingInterval,
+		PongTimeout:    device.PongTimeout,
+		EventsTopic:    device.EventsTopic,
 	}
 	return sess.ID, details, nil
 }

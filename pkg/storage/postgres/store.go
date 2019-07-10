@@ -9,6 +9,7 @@ import (
 type store struct {
 	sessions *sessionStore
 	events   *eventStore
+	devices  *deviceStore
 }
 
 // NewStore creates a new PostgreSQL based Storage interface
@@ -16,6 +17,7 @@ func NewStore(db *sqlx.DB) storage.Interface {
 	return &store{
 		sessions: newSessionStore(db),
 		events:   newEventStore(db),
+		devices:  newDeviceStore(db),
 	}
 }
 
@@ -24,7 +26,12 @@ func (s *store) Sessions() storage.SessionStore {
 	return s.sessions
 }
 
-// Sessions returns a sub-store for managing the Event model
+// Events returns a sub-store for managing the Event model
 func (s *store) Events() storage.EventStore {
 	return s.events
+}
+
+// Devices returns a sub-store for managing the Event model
+func (s *store) Devices() storage.DeviceStore {
+	return s.devices
 }

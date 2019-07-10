@@ -1,11 +1,11 @@
 package memory
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/nsyszr/lcm/pkg/model"
+	"github.com/nsyszr/lcm/pkg/storage"
 )
 
 type sessionStore struct {
@@ -40,7 +40,7 @@ func (s *sessionStore) FindByID(id int32) (*model.Session, error) {
 		return &m, nil
 	}
 
-	return nil, fmt.Errorf("not found")
+	return nil, storage.ErrNotFound
 }
 
 func (s *sessionStore) FindByNamespaceAndDeviceID(namespace, deviceID string) (*model.Session, error) {
@@ -53,7 +53,7 @@ func (s *sessionStore) FindByNamespaceAndDeviceID(namespace, deviceID string) (*
 		}
 	}
 
-	return nil, fmt.Errorf("not found")
+	return nil, storage.ErrNotFound
 }
 
 func (s *sessionStore) Create(m *model.Session) error {
@@ -75,7 +75,7 @@ func (s *sessionStore) Delete(id int32) error {
 
 	_, ok := s.store[id]
 	if !ok {
-		return fmt.Errorf("not found")
+		return storage.ErrNotFound
 	}
 
 	delete(s.store, id)
