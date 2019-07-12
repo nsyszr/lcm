@@ -12,14 +12,14 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func (cc *ControlChannel) subscribe() error {
+func (cc *ControlChannel) subscribe(deviceID string) error {
 	if cc.nc == nil {
 		// TODO(DGL) Create a true error
 		return fmt.Errorf("controlchannel: connection to nats is missing")
 	}
 
 	// TODO(DGL) Replace hardcoded namespace and device ID
-	subj := fmt.Sprintf("iotcore.devicecontrol.v1.%s.controlchannel.%s.call", "default", "test")
+	subj := fmt.Sprintf("iotcore.devicecontrol.v1.%s.controlchannel.%s.call", "default", deviceID)
 	sub, err := cc.nc.Subscribe(subj, func(msg *nats.Msg) {
 		log.Debugf("controlchannel received message from call queue: %s", string(msg.Data))
 

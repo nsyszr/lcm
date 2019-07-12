@@ -3,6 +3,7 @@ package controlchannel
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -138,7 +139,9 @@ func (cc *ControlChannel) AdmitRegistration(sessionID int32, timeout int, realm 
 	go cc.waitForPingOrClose()
 
 	// Listen for call requests
-	go cc.subscribe()
+	// TODO(DGL) Working with relam is shit !
+	deviceIDAndURI := strings.SplitN(realm, "@", 2)
+	go cc.subscribe(deviceIDAndURI[0])
 
 	log.Infof("controlchannel registered for device '%s'", realm)
 }

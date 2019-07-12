@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 2 {
+	if len(os.Args) != 3 {
 		log.Fatal("missing argument cli command")
 	}
 
@@ -28,12 +28,13 @@ func main() {
 
 	req := message.CallRequest{
 		TargetType: message.TargetTypeDevice,
-		TargetID:   "test",
+		TargetID:   os.Args[1],
 		Command:    "m3_cli",
 		Arguments: m3CliCommand{
-			Command: os.Args[1],
+			Command: os.Args[2],
 		},
 	}
+	fmt.Printf("req=%v", req)
 	requestData, err := json.Marshal(req)
 	if err != nil {
 		log.Fatal(err)
