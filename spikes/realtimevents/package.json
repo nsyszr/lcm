@@ -1,0 +1,12 @@
+{
+  "name": "realtimevents",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^7.1.1"
+  },
+  "scripts": {
+    "client": "node src/client.js"
+  }
+}

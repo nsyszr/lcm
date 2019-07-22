@@ -36,4 +36,6 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	api.GET("/events", h.handleFetchEvents)
 
 	api.POST("/call/:namespace/:id", h.handleCallRequest)
+
+	api.Any("/realtime-events", h.realtimeEventsHandler())
 }
