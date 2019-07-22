@@ -147,7 +147,7 @@ func createEvent(db *sqlx.DB, m *model.Event) error {
 	}
 
 	query := fmt.Sprintf(
-		"INSERT INTO events (%s) VALUES (%s)",
+		"INSERT INTO events (%s) VALUES (%s) RETURNING id",
 		strings.Join(sqlParamsWithoutID, ", "),
 		":"+strings.Join(sqlParamsWithoutID, ", :"),
 	)

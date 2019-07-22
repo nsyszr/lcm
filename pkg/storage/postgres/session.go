@@ -172,7 +172,7 @@ func createSession(db *sqlx.DB, m *model.Session) error {
 	}
 
 	query := fmt.Sprintf(
-		"INSERT INTO sessions (%s) VALUES (%s)  RETURNING id",
+		"INSERT INTO sessions (%s) VALUES (%s) RETURNING id",
 		strings.Join(sqlParamsWithoutID, ", "),
 		":"+strings.Join(sqlParamsWithoutID, ", :"),
 	)
