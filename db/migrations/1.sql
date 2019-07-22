@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     namespace          text NOT NULL,
     device_id          text NOT NULL,
     device_uri         text NOT NULL,
+    session_timeout    int NOT NULL DEFAULT 120,
     last_message_at    timestamp NOT NULL DEFAULT now(),
     created_at         timestamp NOT NULL DEFAULT now(),
     updated_at         timestamp NOT NULL DEFAULT now(),

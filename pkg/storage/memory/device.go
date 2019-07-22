@@ -86,6 +86,20 @@ func (s *deviceStore) Create(m *model.Device) error {
 	return nil
 }
 
+func (s *deviceStore) Delete(id int32) error {
+	s.Lock()
+	defer s.Unlock()
+
+	_, ok := s.store[id]
+	if !ok {
+		return storage.ErrNotFound
+	}
+
+	delete(s.store, id)
+
+	return nil
+}
+
 func (s *deviceStore) getNextID() int32 {
 	id := s.nextID
 	s.nextID++

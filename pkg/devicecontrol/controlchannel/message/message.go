@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -115,6 +116,35 @@ const (
 	ReplyStatusSuccess = iota
 	ReplyStatusError
 )
+
+func (t ReplyStatus) MarshalJSON() ([]byte, error) {
+	buffer := bytes.NewBufferString(`"`)
+	if t == ReplyStatusSuccess {
+		buffer.WriteString("SUCCESS")
+	} else {
+		buffer.WriteString("ERROR")
+	}
+	buffer.WriteString(`"`)
+	return buffer.Bytes(), nil
+
+	// return json.Marshal(sourceTypeToString[t])
+}
+
+func (t *ReplyStatus) UnmarshalJSON(b []byte) error {
+	var s string
+	err := json.Unmarshal(b, &s)
+	if err != nil {
+		return err
+	}
+	// Note that if the string cannot be found then it will be set to the zero value, 'Created' in this case.
+	if strings.ToUpper(s) == "SUCCESS" {
+		*t = ReplyStatusSuccess
+	} else {
+		*t = ReplyStatusError
+	}
+
+	return nil
+}
 
 type PublishRequest struct {
 	SourceType SourceType  `json:"source_type"`

@@ -189,14 +189,21 @@ func (f messageHandlerFunc) Handle(msg interface{}) error {
 // function. It expects a handler of interface messageHandler. This method is
 // similar to the go implementation of http.HandleFunc.
 func (cc *ControlChannel) handleMessage(msg interface{}, h messageHandler) error {
-	cc.updateSessionLastMessageAt(time.Now().Round(time.Second).UTC())
+	cc.updateSessionLastMessageAt()
 	return h.Handle(msg)
 }
 
-func (cc *ControlChannel) updateSessionLastMessageAt(t time.Time) {
+func (cc *ControlChannel) updateSessionLastMessageAt() {
+	var sessID int32
+	lastMessageAt := time.Now().Round(time.Second).UTC()
+
+	// Safely access session details
 	cc.sessionDetailsMutex.Lock()
-	cc.sessionDetails.lastMessageAt = time.Now().Round(time.Second).UTC()
+	sessID = cc.sessionDetails.id
+	cc.sessionDetails.lastMessageAt = lastMessageAt
 	cc.sessionDetailsMutex.Unlock()
+
+	go cc.ctrl.UpdateSession(sessID, lastMessageAt)
 }
 
 func (cc *ControlChannel) helloHandler() messageHandlerFunc {

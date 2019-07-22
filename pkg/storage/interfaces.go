@@ -15,6 +15,7 @@ type SessionStore interface {
 	FindByID(id int32) (*model.Session, error)
 	FindByNamespaceAndDeviceID(namespace, deviceID string) (*model.Session, error)
 	Create(m *model.Session) error
+	Update(m *model.Session) error
 	Delete(id int32) error
 }
 
@@ -31,4 +32,5 @@ type DeviceStore interface {
 	FindByID(id int32) (*model.Device, error)
 	FindByNamespaceAndDeviceID(namespace, deviceID string) (*model.Device, error)
 	Create(m *model.Device) error
+	Delete(id int32) error
 }

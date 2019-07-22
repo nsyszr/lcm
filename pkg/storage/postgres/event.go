@@ -50,11 +50,11 @@ func (d *sqlDataEvent) Scan(m *model.Event) error {
 	var createdAt, updatedAt = m.CreatedAt, m.UpdatedAt
 
 	if m.CreatedAt.IsZero() {
-		createdAt = time.Now()
+		createdAt = time.Now().Round(time.Second).UTC()
 	}
 
 	if m.UpdatedAt.IsZero() {
-		updatedAt = time.Now()
+		updatedAt = time.Now().Round(time.Second).UTC()
 	}
 
 	d.ID = m.ID
@@ -64,8 +64,8 @@ func (d *sqlDataEvent) Scan(m *model.Event) error {
 	d.Topic = m.Topic
 	d.Timestamp = m.Timestamp
 	d.Details = m.Details
-	d.CreatedAt = createdAt.Round(time.Second)
-	d.UpdatedAt = updatedAt.Round(time.Second)
+	d.CreatedAt = createdAt
+	d.UpdatedAt = updatedAt
 
 	return nil
 }

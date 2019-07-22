@@ -69,6 +69,19 @@ func (s *sessionStore) Create(m *model.Session) error {
 	return nil
 }
 
+func (s *sessionStore) Update(m *model.Session) error {
+	s.Lock()
+	defer s.Unlock()
+	if m, ok := s.store[m.ID]; ok {
+		m.CreatedAt = s.store[m.ID].CreatedAt
+		m.UpdatedAt = time.Now().Round(time.Second).UTC()
+		s.store[m.ID] = m
+		return nil
+	}
+
+	return storage.ErrNotFound
+}
+
 func (s *sessionStore) Delete(id int32) error {
 	s.Lock()
 	defer s.Unlock()

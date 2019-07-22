@@ -52,11 +52,11 @@ func (d *sqlDataDevice) Scan(m *model.Device) error {
 	var createdAt, updatedAt = m.CreatedAt, m.UpdatedAt
 
 	if m.CreatedAt.IsZero() {
-		createdAt = time.Now()
+		createdAt = time.Now().Round(time.Second).UTC()
 	}
 
 	if m.UpdatedAt.IsZero() {
-		updatedAt = time.Now()
+		updatedAt = time.Now().Round(time.Second).UTC()
 	}
 
 	d.ID = m.ID
@@ -67,8 +67,8 @@ func (d *sqlDataDevice) Scan(m *model.Device) error {
 	d.PingInterval = m.PingInterval
 	d.PongTimeout = m.PongTimeout
 	d.EventsTopic = m.EventsTopic
-	d.CreatedAt = createdAt.Round(time.Second)
-	d.UpdatedAt = updatedAt.Round(time.Second)
+	d.CreatedAt = createdAt
+	d.UpdatedAt = updatedAt
 
 	return nil
 }
@@ -102,6 +102,10 @@ func (s *deviceStore) Create(m *model.Device) error {
 	return createDevice(s.db, m)
 }
 
+func (s *deviceStore) Delete(id int32) error {
+	return deleteDevice(s.db, id)
+}
+
 func (s *deviceStore) FindByNamespaceAndDeviceID(namespace, deviceID string) (*model.Device, error) {
 	return findDeviceByNamespaceAndDeviceID(s.db, namespace, deviceID)
 }
@@ -110,7 +114,7 @@ func fetchAllDevices(db *sqlx.DB) (map[int32]model.Device, error) {
 	rows := make([]sqlDataDevice, 0)
 	models := make(map[int32]model.Device)
 
-	query := "SELECT * FROM devices"
+	query := "SELECT * FROM devices ORDER BY id"
 	if err := db.Select(&rows, query); err != nil {
 		return nil, errors.Wrap(err, "failed to fetch all devuces")
 	}
@@ -154,26 +158,26 @@ func findDeviceByNamespaceAndDeviceID(db *sqlx.DB, namespace, deviceID string) (
 }
 
 func createDevice(db *sqlx.DB, m *model.Device) error {
+	// Set default values
+	if m.SessionTimeout == 0 {
+		m.SessionTimeout = 120
+	}
+	if m.PingInterval == 0 {
+		m.PingInterval = 104
+	}
+	if m.PongTimeout == 0 {
+		m.PongTimeout = 16
+	}
+	if m.EventsTopic == "" {
+		m.EventsTopic = "deviceevent"
+	}
+
+	// TODO(DGL) Add validation, eg. PingInterval not greater than SessionTimeout
+
 	d := sqlDataDevice{}
 	if err := d.Scan(m); err != nil {
 		return errors.Wrap(err, "failed to convert device model to SQL data")
 	}
-
-	// Set default values
-	if d.SessionTimeout == 0 {
-		d.SessionTimeout = 120
-	}
-	if d.PingInterval == 104 {
-		d.PingInterval = 104
-	}
-	if d.PongTimeout == 16 {
-		d.PongTimeout = 16
-	}
-	if d.EventsTopic == "" {
-		d.EventsTopic = "deviceevent"
-	}
-
-	// TODO(DGL) Add validation, eg. PingInterval not greater than SessionTimeout
 
 	// Remove the id column because it's of SQL type serial
 	sqlParamsWithoutID := make([]string, 0)
@@ -184,7 +188,7 @@ func createDevice(db *sqlx.DB, m *model.Device) error {
 	}
 
 	query := fmt.Sprintf(
-		"INSERT INTO devices (%s) VALUES (%s)",
+		"INSERT INTO devices (%s) VALUES (%s) RETURNING id",
 		strings.Join(sqlParamsWithoutID, ", "),
 		":"+strings.Join(sqlParamsWithoutID, ", :"),
 	)
@@ -194,6 +198,16 @@ func createDevice(db *sqlx.DB, m *model.Device) error {
 	}
 	if rows.Next() {
 		rows.Scan(&m.ID)
+	}
+
+	return nil
+}
+
+func deleteDevice(db *sqlx.DB, id int32) error {
+	query := "DELETE FROM devices WHERE id=$1"
+	_, err := db.Exec(query, id)
+	if err != nil {
+		return errors.Wrap(err, "failed to delete session")
 	}
 
 	return nil

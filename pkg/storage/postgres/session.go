@@ -23,13 +23,14 @@ type sessionStore struct {
 }
 
 type sqlDataSession struct {
-	ID            int32     `db:"id"`
-	Namespace     string    `db:"namespace"`
-	DeviceID      string    `db:"device_id"`
-	DeviceURI     string    `db:"device_uri"`
-	LastMessageAt time.Time `db:"last_message_at"`
-	CreatedAt     time.Time `db:"created_at"`
-	UpdatedAt     time.Time `db:"updated_at"`
+	ID             int32     `db:"id"`
+	Namespace      string    `db:"namespace"`
+	DeviceID       string    `db:"device_id"`
+	DeviceURI      string    `db:"device_uri"`
+	SessionTimeout int       `db:"session_timeout"`
+	LastMessageAt  time.Time `db:"last_message_at"`
+	CreatedAt      time.Time `db:"created_at"`
+	UpdatedAt      time.Time `db:"updated_at"`
 }
 
 var sqlParamsSession = []string{
@@ -37,6 +38,7 @@ var sqlParamsSession = []string{
 	"namespace",
 	"device_id",
 	"device_uri",
+	"session_timeout",
 	"last_message_at",
 	"created_at",
 	"updated_at",
@@ -46,33 +48,35 @@ func (d *sqlDataSession) Scan(m *model.Session) error {
 	var createdAt, updatedAt = m.CreatedAt, m.UpdatedAt
 
 	if m.CreatedAt.IsZero() {
-		createdAt = time.Now()
+		createdAt = time.Now().Round(time.Second).UTC()
 	}
 
 	if m.UpdatedAt.IsZero() {
-		updatedAt = time.Now()
+		updatedAt = time.Now().Round(time.Second).UTC()
 	}
 
 	d.ID = m.ID
 	d.Namespace = m.Namespace
 	d.DeviceID = m.DeviceID
 	d.DeviceURI = m.DeviceURI
+	d.SessionTimeout = m.SessionTimeout
 	d.LastMessageAt = m.LastMessageAt
-	d.CreatedAt = createdAt.Round(time.Second)
-	d.UpdatedAt = updatedAt.Round(time.Second)
+	d.CreatedAt = createdAt
+	d.UpdatedAt = updatedAt
 
 	return nil
 }
 
 func (d *sqlDataSession) Model() (*model.Session, error) {
 	m := &model.Session{
-		ID:            d.ID,
-		Namespace:     d.Namespace,
-		DeviceID:      d.DeviceID,
-		DeviceURI:     d.DeviceURI,
-		LastMessageAt: d.LastMessageAt,
-		CreatedAt:     d.CreatedAt,
-		UpdatedAt:     d.UpdatedAt,
+		ID:             d.ID,
+		Namespace:      d.Namespace,
+		DeviceID:       d.DeviceID,
+		DeviceURI:      d.DeviceURI,
+		SessionTimeout: d.SessionTimeout,
+		LastMessageAt:  d.LastMessageAt,
+		CreatedAt:      d.CreatedAt,
+		UpdatedAt:      d.UpdatedAt,
 	}
 
 	return m, nil
@@ -92,6 +96,10 @@ func (s *sessionStore) FindByNamespaceAndDeviceID(namespace, deviceID string) (*
 
 func (s *sessionStore) Create(m *model.Session) error {
 	return createSession(s.db, m)
+}
+
+func (s *sessionStore) Update(m *model.Session) error {
+	return updateSession(s.db, m)
 }
 
 func (s *sessionStore) Delete(id int32) error {
@@ -146,6 +154,10 @@ func findSessionByNamespaceAndDeviceID(db *sqlx.DB, namespace, deviceID string) 
 }
 
 func createSession(db *sqlx.DB, m *model.Session) error {
+	if m.SessionTimeout == 0 {
+		m.SessionTimeout = 120
+	}
+
 	d := sqlDataSession{}
 	if err := d.Scan(m); err != nil {
 		return errors.Wrap(err, "failed to convert session model to SQL data")
@@ -170,6 +182,31 @@ func createSession(db *sqlx.DB, m *model.Session) error {
 	}
 	if rows.Next() {
 		rows.Scan(&m.ID)
+	}
+
+	return nil
+}
+
+func updateSession(db *sqlx.DB, m *model.Session) error {
+	if _, err := findSessionByID(db, m.ID); err != nil {
+		return err
+	}
+
+	// Set the UpdateAt date to now
+	m.UpdatedAt = time.Now().Round(time.Second).UTC()
+
+	d := sqlDataSession{}
+	if err := d.Scan(m); err != nil {
+		return errors.Wrap(err, "failed to convert session model to SQL data")
+	}
+
+	var queryParams []string
+	for _, param := range sqlParamsSession {
+		queryParams = append(queryParams, fmt.Sprintf("%s=:%s", param, param))
+	}
+	query := fmt.Sprintf("UPDATE sessions SET %s WHERE id=:id", strings.Join(queryParams, ", "))
+	if _, err := db.NamedExec(query, d); err != nil {
+		return errors.Wrap(err, "failed to update session")
 	}
 
 	return nil

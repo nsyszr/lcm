@@ -41,7 +41,7 @@ func (ctrl *Controller) RegisterSession(cc *ControlChannel, realm string) (int32
 
 	// We found an existing entry, let's check the timeout
 	if err == nil {
-		if existingSess.LastMessageAt.Add(time.Duration(existingSess.Timeout) * time.Second).After(time.Now()) {
+		if existingSess.LastMessageAt.Add(time.Duration(existingSess.SessionTimeout) * time.Second).After(time.Now()) {
 			log.Warnf("controller rejected the control channel becuase session for '%s' exists already", deviceIDAndURI[0])
 			return 0, nil, proto.NewRegistrationError(proto.ErrReasonSessionExists,
 				fmt.Sprintf("a session for '%s' exists already", realm))
@@ -56,11 +56,11 @@ func (ctrl *Controller) RegisterSession(cc *ControlChannel, realm string) (int32
 	// Create a new session in the store
 	// TODO(DGL) Fix hardcoded namespace
 	sess := model.Session{
-		Namespace:     "default",
-		DeviceID:      device.DeviceID,
-		DeviceURI:     device.DeviceURI,
-		LastMessageAt: time.Now().Round(time.Second).UTC(),
-		Timeout:       device.SessionTimeout,
+		Namespace:      "default",
+		DeviceID:       device.DeviceID,
+		DeviceURI:      device.DeviceURI,
+		SessionTimeout: device.SessionTimeout,
+		LastMessageAt:  time.Now().Round(time.Second).UTC(),
 	}
 	if err := ctrl.store.Sessions().Create(&sess); err != nil {
 		log.Errorf("controller failed to create new session: %v", err)
@@ -112,4 +112,17 @@ func (ctrl *Controller) UnregisterSession(sessionID int32) {
 	}
 
 	log.Infof("controller removed successfully the control channel session with ID: %d", sessionID)
+}
+
+func (ctrl *Controller) UpdateSession(sessionID int32, lastMessageAt time.Time) {
+	sess, err := ctrl.store.Sessions().FindByID(sessionID)
+	if err != nil {
+		log.Errorf("controller could not find existing session: %v", err)
+		return // No session found we leave
+	}
+
+	sess.LastMessageAt = lastMessageAt
+	if err := ctrl.store.Sessions().Update(sess); err != nil {
+		log.Errorf("controller failed to update session from store: %v", err)
+	}
 }

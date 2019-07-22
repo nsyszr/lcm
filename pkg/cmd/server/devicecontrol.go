@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
 	nats "github.com/nats-io/nats.go"
+	"github.com/nsyszr/lcm/pkg/api"
 	"github.com/nsyszr/lcm/pkg/devicecontrol"
 	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel"
 	"github.com/nsyszr/lcm/pkg/storage/postgres"
@@ -126,6 +127,9 @@ func (s *deviceControlServer) Serve() {
 	// Register API endpoints
 	deviceControlHandler := devicecontrol.NewHandler(ctrl)
 	deviceControlHandler.RegisterRoutes(e)
+
+	apiHandler := api.NewHandler(s.nc, postgres.NewStore(s.db))
+	apiHandler.RegisterRoutes(e)
 
 	// Register devicecontrol endpoint
 	// e.Any("/devicecontrol/v1", devicecontrol.Handler())
