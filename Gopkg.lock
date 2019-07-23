@@ -128,6 +128,12 @@
   version = "v0.8.1"
 
 [[projects]]
+  branch = "master"
+  name = "github.com/rubenv/sql-migrate"
+  packages = [".","sqlparse"]
+  revision = "87ce952f7079c58e10a2a85835202943ebb9580c"
+
+[[projects]]
   name = "github.com/sirupsen/logrus"
   packages = ["."]
   revision = "8bdbc7bcc01dcbb8ec23dc8a28e332258d25251f"
@@ -206,6 +212,12 @@
   version = "v0.3.2"
 
 [[projects]]
+  name = "gopkg.in/gorp.v1"
+  packages = ["."]
+  revision = "6a667da9c028871f98598d85413e3fc4c6daa52e"
+  version = "v1.7.2"
+
+[[projects]]
   name = "gopkg.in/yaml.v2"
   packages = ["."]
   revision = "51d6538a90f86fe93ac480b35f37b2be17fef232"
@@ -214,6 +226,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "d5061c5f6b1f8205e63c38b7e4893bf2cae8e2eb957a1ef80ff2dc90a37bd6a1"
+  inputs-digest = "cb9faf64125c8fde07ef54396bfbae78dbf2bbb43f78b5ece82cdffc43f04fde"
   solver-name = "gps-cdcl"
   solver-version = 1

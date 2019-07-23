@@ -2,16 +2,21 @@ package cmd
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 
+	"github.com/nsyszr/lcm/config"
+	"github.com/nsyszr/lcm/pkg/cmd/cli"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
 var cfgFile string
+var c = new(config.Config)
+var cmdHandler = cli.NewHandler(c)
 
 var (
 	Version   = "dev-master"
@@ -31,9 +36,9 @@ var RootCmd = &cobra.Command{
 
 // Execute runs the idaas and is called by main.main()
 func Execute() {
-	/*c.BuildTime = BuildTime
+	c.BuildTime = BuildTime
 	c.BuildVersion = Version
-	c.BuildHash = GitHash*/
+	c.BuildHash = GitHash
 
 	if err := RootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -52,22 +57,28 @@ func initConfig() {
 		viper.SetConfigFile(cfgFile)
 	} else {
 		path := absPathify("$HOME")
-		if _, err := os.Stat(filepath.Join(path, ".ngvpn.yml")); err != nil {
-			_, _ = os.Create(filepath.Join(path, ".ngvpn.yml"))
+		if _, err := os.Stat(filepath.Join(path, ".barkeeper.yml")); err != nil {
+			_, _ = os.Create(filepath.Join(path, ".barkeeper.yml"))
 		}
 
 		viper.SetConfigType("yaml")
-		viper.SetConfigName(".ngvpn") // name of config file (without extension)
-		viper.AddConfigPath("$HOME")  // adding home directory as first search path
+		viper.SetConfigName(".barkeeper") // name of config file (without extension)
+		viper.AddConfigPath("$HOME")      // adding home directory as first search path
 	}
 	viper.AutomaticEnv() // read in environment variables that match
 
 	// Fetch settings
-	/*viper.BindEnv("API_HOST")
-	viper.SetDefault("API_HOST", "")
+	viper.BindEnv("PORT")
+	viper.SetDefault("PORT", 8080)
 
-	viper.BindEnv("API_PORT")
-	viper.SetDefault("API_PORT", 5556)*/
+	viper.BindEnv("HOST")
+	viper.SetDefault("HOST", "")
+
+	viper.BindEnv("DATABASE_URL")
+	viper.SetDefault("DATABASE_URL", "postgres://u4barkeeper:pw4barkeeper@postgres:5432/barkeeper?sslmode=disable")
+
+	viper.BindEnv("NATS_URL")
+	viper.SetDefault("NATS_URL", "nats://nats:4222")
 
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err != nil {
@@ -75,9 +86,9 @@ func initConfig() {
 		fmt.Println("")
 	}
 
-	/*if err := viper.Unmarshal(c); err != nil {
+	if err := viper.Unmarshal(c); err != nil {
 		log.Fatal(fmt.Sprintf("Could not read config because %s.", err))
-	}*/
+	}
 }
 
 func absPathify(inPath string) string {

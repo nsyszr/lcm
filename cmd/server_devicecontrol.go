@@ -9,7 +9,7 @@ import (
 var serveDeviceControlCmd = &cobra.Command{
 	Use:   "devicecontrol",
 	Short: "Serve device control instance",
-	Run:   server.RunServeDeviceControl(),
+	Run:   server.RunServeDeviceControl(c),
 }
 
 func init() {

@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
 	nats "github.com/nats-io/nats.go"
+	"github.com/nsyszr/lcm/config"
 	"github.com/nsyszr/lcm/pkg/api"
 	"github.com/nsyszr/lcm/pkg/devicecontrol"
 	"github.com/nsyszr/lcm/pkg/devicecontrol/controlchannel"
@@ -25,6 +26,7 @@ import (
 )
 
 type deviceControlServer struct {
+	cfg    *config.Config
 	db     *sqlx.DB
 	nc     *nats.Conn
 	quitCh chan bool
@@ -50,14 +52,15 @@ func init() {
 	log.SetLevel(log.DebugLevel)
 }
 
-func newDeviceControlServer() (*deviceControlServer, error) {
-	db, err := initDB()
+func newDeviceControlServer(c *config.Config) (*deviceControlServer, error) {
+	db, err := initDB(c)
 	if err != nil {
 		return nil, err
 	}
 
 	s := &deviceControlServer{
 		// mgr:     memory.NewMemoryManager(),
+		cfg:    c,
 		db:     db,
 		quitCh: make(chan bool),
 		doneCh: make(chan bool),
@@ -65,7 +68,7 @@ func newDeviceControlServer() (*deviceControlServer, error) {
 		wg:     sync.WaitGroup{},
 	}
 
-	nc, err := nats.Connect(nats.DefaultURL,
+	nc, err := nats.Connect(c.NATSServerURL,
 		nats.DrainTimeout(10*time.Second),
 		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
 			fmt.Printf("\n\nerror handler: %s\n\n", err)
@@ -93,10 +96,10 @@ func newDeviceControlServer() (*deviceControlServer, error) {
 	return s, nil
 }
 
-func initDB( /*c *config.Config*/ ) (db *sqlx.DB, err error) {
+func initDB(c *config.Config) (db *sqlx.DB, err error) {
 	// Connect to PostgreSQL database
 	// TODO(DGL) remove hardcoded database URL
-	db, err = sqlx.Open("postgres", "postgres://u4barkeeperdev:pw4barkeeperdev@localhost:5432/barkeeperdev?sslmode=disable")
+	db, err = sqlx.Open("postgres", c.DatabaseURL)
 	if err != nil {
 		log.Error("Failed to connect database: ", err)
 		return
@@ -136,11 +139,11 @@ func (s *deviceControlServer) Serve() {
 
 	go func() {
 		log.WithFields(log.Fields{
-			"host": "",
-			"port": 4001,
+			"host": s.cfg.BindHost,
+			"port": s.cfg.BindPort,
 		}).Info("Starting server")
 
-		if err := e.Start(fmt.Sprintf("%s:%d", "", 4001)); err != nil {
+		if err := e.Start(fmt.Sprintf("%s:%d", s.cfg.BindHost, s.cfg.BindPort)); err != nil {
 			e.Logger.Info("Shutting down the server")
 		}
 	}()
@@ -235,9 +238,9 @@ func (s *deviceControlServer) Shutdown() {
 	}
 }
 
-func RunServeDeviceControl() func(cmd *cobra.Command, args []string) {
+func RunServeDeviceControl(c *config.Config) func(cmd *cobra.Command, args []string) {
 	return func(cmd *cobra.Command, args []string) {
-		s, err := newDeviceControlServer()
+		s, err := newDeviceControlServer(c)
 		if err != nil {
 			log.Error("failed to create new server instance: ", err)
 			os.Exit(1)
